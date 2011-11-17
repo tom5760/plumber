@@ -3,7 +3,11 @@
 import sys
 import math
 
-from gi.repository import Gtk
+from gi.repository import Gtk, Gdk
+
+GRID_SPACING = 30
+GRID_LENGTH = 3
+GRID_WIDTH = 0.1
 
 class Toolbar(Gtk.Toolbar):
     def __init__(self):
@@ -42,7 +46,21 @@ class ComponentPanes(Gtk.ToolPalette):
 class Canvas(Gtk.DrawingArea):
     def __init__(self):
         super().__init__()
+
+        self.dot = (0, 0)
+
+        self.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
+                        | Gdk.EventMask.BUTTON_MOTION_MASK
+                        | Gdk.EventMask.BUTTON_PRESS_MASK
+                        | Gdk.EventMask.BUTTON_RELEASE_MASK)
+
         self.connect('draw', self.do_draw)
+        self.connect('button-press-event', self.do_click)
+        self.connect('motion-notify-event', self.do_click)
+
+    def do_click(self, canvas, event):
+        self.dot = (int(event.x), int(event.y))
+        self.get_window().invalidate_rect(None, True)
 
     def do_draw(self, *args):
         if len(args) != 1:
@@ -52,6 +70,30 @@ class Canvas(Gtk.DrawingArea):
         width = self.get_allocated_width()
         height = self.get_allocated_height()
 
+        self.draw_background(ctx, width, height)
+        self.draw_grid(ctx, width, height)
+        self.draw_dot(ctx, width, height)
+
+    def draw_background(self, ctx, width, height):
+        ctx.set_source_rgb(255, 255, 255)
+        ctx.rectangle(0, 0, width, height)
+        ctx.fill()
+
+    def draw_grid(self, ctx, width, height):
+        ctx.set_line_width(GRID_WIDTH)
+        ctx.set_source_rgb(0, 0, 0)
+        ctx.set_dash((GRID_LENGTH,))
+
+        for x in range(0, width, GRID_SPACING):
+            ctx.move_to(x, 0)
+            ctx.line_to(x, height)
+
+        for y in range(0, height, GRID_SPACING):
+            ctx.move_to(0, y)
+            ctx.line_to(width, y)
+        ctx.stroke()
+
+    def draw_spiral(self, ctx, width, height):
         wd = .02 * width
         hd = .02 * height
 
@@ -68,12 +110,18 @@ class Canvas(Gtk.DrawingArea):
         ctx.set_source_rgb (0, 0, 1)
         ctx.stroke()
 
+    def draw_dot(self, ctx, width, height):
+        ctx.arc(self.dot[0], self.dot[1], 10, 0, 360)
+        ctx.set_source_rgb(0, 0, 0)
+        ctx.fill()
+
 class MainWindow(Gtk.Window):
     def __init__(self):
         super().__init__(
                 title='Plumber - Main Window',
                 default_width=700,
                 default_height=800,
+                has_resize_grip=False,
         )
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
