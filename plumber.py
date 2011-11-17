@@ -9,6 +9,8 @@ GRID_SPACING = 30
 GRID_LENGTH = 3
 GRID_WIDTH = 0.1
 
+COMPONENT_TARGET = Gtk.TargetEntry.new('component', Gtk.TargetFlags.SAME_APP, 0)
+
 class Toolbar(Gtk.Toolbar):
     def __init__(self):
         super().__init__(toolbar_style=Gtk.ToolbarStyle.ICONS)
@@ -33,7 +35,12 @@ class ComponentPanes(Gtk.ToolPalette):
 
         io_group = Gtk.ToolItemGroup(label='I/O')
         self.add(io_group)
-        io_group.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_ADD))
+        add_button = Gtk.ToolButton.new_from_stock(Gtk.STOCK_ADD)
+        add_button.set_use_drag_window(True)
+        add_button.drag_source_set(Gdk.ModifierType.BUTTON1_MASK,
+                                   [COMPONENT_TARGET], Gdk.DragAction.COPY)
+        add_button.connect('drag-begin', self.do_drag)
+        io_group.add(add_button)
 
         search_group = Gtk.ToolItemGroup(label='Searching', collapsed=True)
         self.add(search_group)
@@ -42,6 +49,9 @@ class ComponentPanes(Gtk.ToolPalette):
         sort_group = Gtk.ToolItemGroup(label='Sorting', collapsed=True)
         self.add(sort_group)
         sort_group.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_ADD))
+
+    def do_drag(self, *args):
+        print('drag!')
 
 class Canvas(Gtk.DrawingArea):
     def __init__(self):
@@ -54,11 +64,26 @@ class Canvas(Gtk.DrawingArea):
                         | Gdk.EventMask.BUTTON_PRESS_MASK
                         | Gdk.EventMask.BUTTON_RELEASE_MASK)
 
-        self.connect('draw', self.do_draw)
-        self.connect('button-press-event', self.do_click)
-        self.connect('motion-notify-event', self.do_click)
+        self.drag_dest_set(Gtk.DestDefaults.MOTION | Gtk.DestDefaults.DROP,
+                           [COMPONENT_TARGET], Gdk.DragAction.COPY)
 
-    def do_click(self, canvas, event):
+        self.connect('draw', self.do_draw)
+        self.connect('button-press-event', Canvas.do_click)
+        self.connect('motion-notify-event', Canvas.do_click)
+        #self.connect('drag-motion', self.do_drag_motion)
+        self.connect('drag-drop', Canvas.do_drag_drop)
+
+    def do_drag_drop(self, drag_ctx, x, y, time):
+        print('Drag Drop')
+        self.dot = (x, y)
+
+        button = Gtk.drag_get_source_widget(drag_ctx)
+        print(button)
+
+        self.get_window().invalidate_rect(None, True)
+        return True
+
+    def do_click(self, event):
         self.dot = (int(event.x), int(event.y))
         self.get_window().invalidate_rect(None, True)
 
