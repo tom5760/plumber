@@ -5,95 +5,83 @@ import math
 
 from gi.repository import Gtk, Gdk
 
+UI_FILE = 'gui.xml'
+ID_MAIN_WINDOW = 'main_window'
+ID_TOOLBAR_BUTTON = 'toolbar_'
+ID_CANVAS = 'canvas'
+
 GRID_SPACING = 30
 GRID_LENGTH = 3
 GRID_WIDTH = 0.1
 
-COMPONENT_TARGET = Gtk.TargetEntry.new('component', Gtk.TargetFlags.SAME_APP, 0)
+class PlumberPart(object):
+    def __init__(self, builder):
+        self.builder = builder
 
-class Toolbar(Gtk.Toolbar):
-    def __init__(self):
-        super().__init__(toolbar_style=Gtk.ToolbarStyle.ICONS)
+    # This class needs to be subclassed
+    def init_ui(self):
+        raise NotImplementedError('Implement this!')
 
-        self.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_SAVE))
-        self.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_OPEN))
-        self.add(Gtk.SeparatorToolItem())
-        self.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_EDIT))
-        self.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_DELETE))
-        self.add(Gtk.SeparatorToolItem())
-        self.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_UNDO))
-        self.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_REDO))
-        self.add(Gtk.SeparatorToolItem())
-        self.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_MEDIA_PLAY))
-        self.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_MEDIA_STOP))
-        self.add(Gtk.SeparatorToolItem())
-        self.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_HELP))
+class Toolbar(PlumberPart):
+    BUTTONS = ('save', 'open', 'edit', 'delete', 'undo', 'redo', 'play',
+               'stop', 'help',)
 
-class ComponentPanes(Gtk.ToolPalette):
-    def __init__(self):
-        super().__init__(toolbar_style=Gtk.ToolbarStyle.BOTH)
+    def init_ui(self):
+        for name in Toolbar.BUTTONS:
+            button = self.builder.get_object(ID_TOOLBAR_BUTTON + name)
+            button.connect('clicked', getattr(self, 'do_' + name))
 
-        io_group = Gtk.ToolItemGroup(label='I/O')
-        self.add(io_group)
-        add_button = Gtk.ToolButton.new_from_stock(Gtk.STOCK_ADD)
-        add_button.set_use_drag_window(True)
-        add_button.drag_source_set(Gdk.ModifierType.BUTTON1_MASK,
-                                   [COMPONENT_TARGET], Gdk.DragAction.COPY)
-        add_button.connect('drag-begin', self.do_drag)
-        io_group.add(add_button)
+    def do_save(self, button):
+        print('SAVE')
 
-        search_group = Gtk.ToolItemGroup(label='Searching', collapsed=True)
-        self.add(search_group)
-        search_group.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_ADD))
+    def do_open(self, button):
+        print('OPEN')
 
-        sort_group = Gtk.ToolItemGroup(label='Sorting', collapsed=True)
-        self.add(sort_group)
-        sort_group.add(Gtk.ToolButton.new_from_stock(Gtk.STOCK_ADD))
+    def do_edit(self, button):
+        print('EDIT')
 
-    def do_drag(self, *args):
-        print('drag!')
+    def do_delete(self, button):
+        print('DELETE')
 
-class Canvas(Gtk.DrawingArea):
-    def __init__(self):
-        super().__init__()
+    def do_undo(self, button):
+        print('UNDO')
+
+    def do_redo(self, button):
+        print('REDO')
+
+    def do_play(self, button):
+        print('PLAY')
+
+    def do_stop(self, button):
+        print('STOP')
+
+    def do_help(self, button):
+        print('HELP')
+
+class ComponentPanes(PlumberPart):
+    def init_ui(self):
+        pass
+
+class Canvas(PlumberPart):
+    def init_ui(self):
+        canvas = self.builder.get_object(ID_CANVAS)
+        canvas.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
+                          | Gdk.EventMask.BUTTON_MOTION_MASK
+                          | Gdk.EventMask.BUTTON_PRESS_MASK
+                          | Gdk.EventMask.BUTTON_RELEASE_MASK)
+        canvas.connect('draw', self.do_draw)
+        canvas.connect('button-press-event', self.do_click)
+        canvas.connect('motion-notify-event', self.do_click)
 
         self.dot = (0, 0)
 
-        self.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
-                        | Gdk.EventMask.BUTTON_MOTION_MASK
-                        | Gdk.EventMask.BUTTON_PRESS_MASK
-                        | Gdk.EventMask.BUTTON_RELEASE_MASK)
-
-        self.drag_dest_set(Gtk.DestDefaults.MOTION | Gtk.DestDefaults.DROP,
-                           [COMPONENT_TARGET], Gdk.DragAction.COPY)
-
-        self.connect('draw', self.do_draw)
-        self.connect('button-press-event', Canvas.do_click)
-        self.connect('motion-notify-event', Canvas.do_click)
-        #self.connect('drag-motion', self.do_drag_motion)
-        self.connect('drag-drop', Canvas.do_drag_drop)
-
-    def do_drag_drop(self, drag_ctx, x, y, time):
-        print('Drag Drop')
-        self.dot = (x, y)
-
-        button = Gtk.drag_get_source_widget(drag_ctx)
-        print(button)
-
-        self.get_window().invalidate_rect(None, True)
-        return True
-
-    def do_click(self, event):
+    def do_click(self, drawing, event):
         self.dot = (int(event.x), int(event.y))
-        self.get_window().invalidate_rect(None, True)
+        drawing.get_window().invalidate_rect(None, True)
 
-    def do_draw(self, *args):
-        if len(args) != 1:
-            return
-
-        ctx = args[0]
-        width = self.get_allocated_width()
-        height = self.get_allocated_height()
+    def do_draw(self, drawing, ctx):
+        width = drawing.get_allocated_width()
+        height = drawing.get_allocated_height()
 
         self.draw_background(ctx, width, height)
         self.draw_grid(ctx, width, height)
@@ -140,36 +128,28 @@ class Canvas(Gtk.DrawingArea):
         ctx.set_source_rgb(0, 0, 0)
         ctx.fill()
 
-class MainWindow(Gtk.Window):
+class Plumber(object):
     def __init__(self):
-        super().__init__(
-                title='Plumber - Main Window',
-                default_width=700,
-                default_height=800,
-                has_resize_grip=False,
-        )
+        self.builder = Gtk.Builder()
+        self.builder.add_from_file(UI_FILE)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.add(box)
+        self.init_ui()
 
-        toolbar = Toolbar()
-        box.add(toolbar)
+    def start(self):
+        self.builder.get_object(ID_MAIN_WINDOW).show_all()
 
-        panes = Gtk.Paned(position=200)
-        box.pack_end(panes, True, True, 0)
+    def init_ui(self):
+        'Wires the UI XML description to the actual implementing code.'
+        main_window = self.builder.get_object(ID_MAIN_WINDOW)
+        main_window.connect('destroy', Gtk.main_quit)
 
-        components = ComponentPanes()
-        panes.add1(components)
-
-        canvas = Canvas()
-        panes.add2(canvas)
-
-        #button.connect('clicked', self.on_button_clicked)
+        Toolbar(self.builder).init_ui()
+        ComponentPanes(self.builder).init_ui()
+        Canvas(self.builder).init_ui()
 
 def main(argv):
-    window = MainWindow()
-    window.connect('delete-event', Gtk.main_quit)
-    window.show_all()
+    p = Plumber()
+    p.start()
     Gtk.main()
 
 if __name__ == '__main__':
