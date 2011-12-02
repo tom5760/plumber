@@ -67,6 +67,9 @@ class ComponentDrawer(Gtk.DrawingArea):
     CANVAS_WIDTH = 150
     CANVAS_HEIGHT = 75
 
+    FONT_FACE = 'Sans'
+    FONT_SIZE = 20
+
     BASE_MARGIN = 5
     BASE_CORNER_RADIUS = 4
     BASE_LINE_WIDTH = 2
@@ -121,6 +124,8 @@ class ComponentDrawer(Gtk.DrawingArea):
         self.draw_base(ctx, width, height)
         self.draw_inputs(ctx, width, height)
         self.draw_outputs(ctx, width, height)
+        if not self.is_icon:
+            self.draw_name(ctx, width, height)
 
     @classmethod
     def draw_base(cls, ctx, width, height):
@@ -172,6 +177,14 @@ class ComponentDrawer(Gtk.DrawingArea):
             ctx.set_source_rgb(255, 0, 0)
             ctx.fill()
             y += offset
+
+    def draw_name(self, ctx, width, height):
+        ctx.select_font_face(self.FONT_FACE)
+        ctx.set_font_size(self.FONT_SIZE)
+        ctx.move_to(self.BASE_MARGIN * 4, height - self.BASE_MARGIN * 4)
+        ctx.set_source_rgb(0, 0, 0)
+        ctx.show_text(self.component.name)
+        ctx.stroke()
 
 class FileInputComponent(object):
     name = 'File Input'
