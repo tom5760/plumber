@@ -244,7 +244,8 @@ class Canvas(PlumberPart):
         #canvas.put(ComponentDrawer(SplitComponent(), False), 300, 300)
 
         #canvas.drag_dest_set(Gtk.DestDefaults.MOTION | Gtk.DestDefaults.DROP,
-        canvas.drag_dest_set(Gtk.DestDefaults.ALL, None, Gdk.DragAction.COPY)
+        canvas.drag_dest_set(Gtk.DestDefaults.MOTION | Gtk.DestDefaults.DROP,
+                             None, Gdk.DragAction.COPY)
         canvas.drag_dest_add_text_targets()
 
         canvas.connect('draw', self.do_draw)
