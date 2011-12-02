@@ -3,6 +3,7 @@
 import sys
 import math
 
+import cairo
 from gi.repository import Gtk, Gdk, GObject
 
 UI_FILE = 'gui.xml'
@@ -14,6 +15,8 @@ ID_CANVAS = 'canvas'
 GRID_SPACING = 30
 GRID_LENGTH = 3
 GRID_WIDTH = 0.1
+
+class FullPipeError(Exception): pass
 
 class PlumberPart(object):
     def __init__(self, builder, components):
@@ -75,6 +78,7 @@ class ComponentDrawer(Gtk.DrawingArea):
     BASE_LINE_WIDTH = 2
     BASE_STROKE_COLOR = (0, 0, 0)
     BASE_FILL_COLOR = (0, 191, 255)
+    BASE_FILL_COLOR_SELECTED = (255, 215, 0)
 
     PORT_RADIUS = 4
     PORT_LINE_WIDTH = 1
@@ -86,7 +90,8 @@ class ComponentDrawer(Gtk.DrawingArea):
         super().__init__()
         self.component = component
         self.is_icon = is_icon
-        self.is_active = False
+        self.is_drag = False
+        self.is_selected = False
 
         self.connect('draw', self.do_draw)
 
@@ -104,11 +109,15 @@ class ComponentDrawer(Gtk.DrawingArea):
             self.connect('button-release-event', self.do_release)
 
     def do_press(self, component, event):
-        self.is_active = True
-        self.grab_focus()
+        self.get_parent().set_focus_child(self)
+        if event.button == 1:
+            self.is_drag = True
+        if event.button == 3:
+            self.is_selected = True
+            self.get_window().invalidate_rect(None, True)
 
     def do_release(self, component, event):
-        self.is_active = False
+        self.is_drag = False
 
     def do_draw(self, *args):
         if len(args) == 1:
@@ -127,12 +136,11 @@ class ComponentDrawer(Gtk.DrawingArea):
         if not self.is_icon:
             self.draw_name(ctx, width, height)
 
-    @classmethod
-    def draw_base(cls, ctx, width, height):
-        x1 = y1 = cls.BASE_MARGIN
-        x2 = width - cls.BASE_MARGIN
-        y2 = height - cls.BASE_MARGIN
-        r = cls.BASE_CORNER_RADIUS
+    def draw_base(self, ctx, width, height):
+        x1 = y1 = self.BASE_MARGIN
+        x2 = width - self.BASE_MARGIN
+        y2 = height - self.BASE_MARGIN
+        r = self.BASE_CORNER_RADIUS
 
         # From http://cairographics.org/cookbook/roundedrectangles Method D
         ctx.arc(x1 + r, y1 + r, r, 2 * (math.pi / 2), 3 * (math.pi / 2))
@@ -141,10 +149,13 @@ class ComponentDrawer(Gtk.DrawingArea):
         ctx.arc(x1 + r, y2 - r, r, math.pi / 2, 2 * (math.pi / 2))
         ctx.close_path()
 
-        ctx.set_line_width(cls.BASE_LINE_WIDTH)
-        ctx.set_source_rgb(*cls.BASE_STROKE_COLOR)
+        ctx.set_line_width(self.BASE_LINE_WIDTH)
+        ctx.set_source_rgb(*self.BASE_STROKE_COLOR)
         ctx.stroke_preserve()
-        ctx.set_source_rgb(*cls.BASE_FILL_COLOR)
+        if self.is_selected:
+            ctx.set_source_rgb(*self.BASE_FILL_COLOR_SELECTED)
+        else:
+            ctx.set_source_rgb(*self.BASE_FILL_COLOR)
         ctx.fill()
 
     def draw_inputs(self, ctx, width, height):
@@ -186,25 +197,48 @@ class ComponentDrawer(Gtk.DrawingArea):
         ctx.show_text(self.component.name)
         ctx.stroke()
 
-class FileInputComponent(object):
+class Component():
+    def __init__(self):
+        self.input_pipes = []
+        self.output_pipes = []
+
+    def attach_input(self, pipe):
+        return self.attach(self.input_pipes, self.inputs, pipe)
+
+    def attach_output(self, pipe):
+        return self.attach(self.output_pipes, self.outputs, pipe)
+
+    def attach(self, list, count, pipe):
+        if len(list) >= count:
+            raise FullPipeError()
+        list.append(pipe)
+        return list.index(pipe) + 1
+
+    def detach_input(self, pipe):
+        self.input_pipes.remove(pipe)
+
+    def detach_output(self, pipe):
+        self.output_pipes.remove(pipe)
+
+class FileInputComponent(Component):
     name = 'File Input'
     category = 'I/O'
     inputs = 0
     outputs = 1
 
-class FileOutputComponent(object):
+class FileOutputComponent(Component):
     name = 'File Output'
     category = 'I/O'
     inputs = 1
     outputs = 0
 
-class FilterComponent(object):
+class FilterComponent(Component):
     name = 'Filter'
     category = 'Searching'
     inputs = 1
     outputs = 1
 
-class SplitComponent(object):
+class SplitComponent(Component):
     name = 'Split'
     category = 'Editing'
     inputs = 1
@@ -241,11 +275,61 @@ class ComponentPalette(PlumberPart):
     def do_data_get(self, button, context, data, info, time, name):
         data.set_text(name, len(name))
 
+class CanvasPipe(object):
+    PIPE_WIDTH = 8
+    PIPE_COLOR = (0, 0, 0)
+
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
+        start.component.attach_output(self)
+        end.component.attach_input(self)
+
+    def detach(self):
+        self.start.component.detach_output(self)
+        self.end.component.detach_input(self)
+
+    def do_draw(self, canvas, ctx):
+        ctx.set_line_width(self.PIPE_WIDTH)
+        ctx.set_source_rgb(*self.PIPE_COLOR)
+        ctx.set_line_join(cairo.LINE_JOIN_ROUND)
+        ctx.set_line_cap(cairo.LINE_CAP_ROUND)
+
+        value = GObject.Value()
+        value.init(GObject.TYPE_INT)
+
+        height = (Canvas.COMPONENT_HEIGHT - ComponentDrawer.BASE_MARGIN * 2)
+
+        start_n = self.start.component.output_pipes.index(self) + 1
+        end_n = self.end.component.input_pipes.index(self) + 1
+
+        start_offset = height / (self.start.component.outputs + 1) * start_n
+        end_offset = height / (self.end.component.inputs + 1) * end_n
+
+        canvas.child_get_property(self.start, 'x', value)
+        start_x = value.get_int() + Canvas.COMPONENT_WIDTH
+        canvas.child_get_property(self.start, 'y', value)
+        start_y = value.get_int() + start_offset
+
+        canvas.child_get_property(self.end, 'x', value)
+        end_x = value.get_int() + ComponentDrawer.BASE_MARGIN
+        canvas.child_get_property(self.end, 'y', value)
+        end_y = value.get_int() + end_offset
+
+        ctx.move_to(start_x, start_y)
+        ctx.line_to(start_x + ((end_x - start_x) / 2), start_y)
+        ctx.line_to(start_x + ((end_x - start_x) / 2), end_y)
+        ctx.line_to(end_x, end_y)
+        ctx.stroke()
+
 class Canvas(PlumberPart):
     COMPONENT_WIDTH = 150
     COMPONENT_HEIGHT = 75
 
     def init_ui(self):
+        self.pipes = []
+        self.last_selected = None
+
         canvas = self.builder.get_object(ID_CANVAS)
         canvas.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
                           | Gdk.EventMask.BUTTON_MOTION_MASK
@@ -262,14 +346,49 @@ class Canvas(PlumberPart):
         canvas.drag_dest_add_text_targets()
 
         canvas.connect('draw', self.do_draw)
-        canvas.connect('motion-notify-event', self.do_click)
+        canvas.connect('motion-notify-event', self.do_motion)
+        canvas.connect('button-release-event', self.do_release)
         #canvas.connect('drag-motion', self.do_drag_motion)
         #canvas.connect('drag-drop', self.do_drag_drop)
         canvas.connect('drag-data-received', self.do_drag_received)
 
-    def do_click(self, canvas, event):
+    def do_release(self, canvas, event):
         component = canvas.get_focus_child()
-        if not component or not component.is_active:
+        canvas.set_focus_child(None)
+
+        if (component and component.is_selected
+                and self.last_selected != component):
+            if self.last_selected is None:
+                self.last_selected = component
+            else:
+                pipe = self.find_pipe(self.last_selected, component)
+                if pipe is not None:
+                    pipe.detach()
+                    self.pipes.remove(pipe)
+                else:
+                    try:
+                        self.pipes.append(CanvasPipe(self.last_selected, component))
+                    except FullPipeError:
+                        pass
+                self.deselect_children(canvas)
+
+        canvas.get_window().invalidate_rect(None, True)
+
+    def deselect_children(self, canvas):
+        for child in canvas.get_children():
+            child.is_selected = False
+            child.get_window().invalidate_rect(None, True)
+        self.last_selected = None
+
+    def find_pipe(self, start, end):
+        for pipe in self.pipes:
+            if pipe.start is start and pipe.end is end:
+                return pipe
+        return None
+
+    def do_motion(self, canvas, event):
+        component = canvas.get_focus_child()
+        if not component or not component.is_drag:
             return
 
         value = GObject.Value()
@@ -311,8 +430,10 @@ class Canvas(PlumberPart):
         self.draw_background(ctx, width, height)
         self.draw_grid(ctx, width, height)
 
-        value = GObject.Value()
-        value.init(GObject.TYPE_INT)
+        for pipe in self.pipes:
+            ctx.save()
+            pipe.do_draw(canvas, ctx)
+            ctx.restore()
 
     def draw_background(self, ctx, width, height):
         ctx.save()
@@ -336,42 +457,6 @@ class Canvas(PlumberPart):
             ctx.line_to(width, y)
         ctx.stroke()
         ctx.restore()
-
-    def draw_components(self, ctx, width, height):
-        for component in self.components:
-            x, y = component.position
-            x1 = x - self.COMPONENT_WIDTH / 2
-            y1 = y - self.COMPONENT_HEIGHT / 2
-            ctx.rectangle(x1, y1, self.COMPONENT_WIDTH, self.COMPONENT_HEIGHT)
-            ctx.save()
-            ctx.clip()
-            ctx.translate(x1, y1)
-
-            component.draw(ctx, self.COMPONENT_WIDTH, self.COMPONENT_HEIGHT)
-
-            ctx.restore()
-
-    #def draw_spiral(self, ctx, width, height):
-    #    wd = .02 * width
-    #    hd = .02 * height
-
-    #    width -= 2
-    #    height -= 2
-
-    #    ctx.move_to (width + 1, 1-hd)
-    #    for i in range(9):
-    #        ctx.rel_line_to (0, height - hd * (2 * i - 1))
-    #        ctx.rel_line_to (- (width - wd * (2 *i)), 0)
-    #        ctx.rel_line_to (0, - (height - hd * (2*i)))
-    #        ctx.rel_line_to (width - wd * (2 * i + 1), 0)
-
-    #    ctx.set_source_rgb (0, 0, 1)
-    #    ctx.stroke()
-
-    #def draw_dot(self, ctx, width, height):
-    #    ctx.arc(self.dot[0], self.dot[1], 10, 0, 360)
-    #    ctx.set_source_rgb(0, 0, 0)
-    #    ctx.fill()
 
 class Plumber(object):
     def __init__(self):
