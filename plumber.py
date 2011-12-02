@@ -15,8 +15,6 @@ GRID_SPACING = 30
 GRID_LENGTH = 3
 GRID_WIDTH = 0.1
 
-#COMPONENT_TARGET = Gtk.TargetEntry.new('component', Gtk.TargetFlags.SAME_APP, 0)
-
 class PlumberPart(object):
     def __init__(self, builder):
         self.builder = builder
@@ -65,6 +63,10 @@ class FileInputComponent(object):
     name = 'File Input'
     category = 'I/O'
 
+class FileOutputComponent(object):
+    name = 'File Output'
+    category = 'I/O'
+
 class FilterComponent(object):
     name = 'Filter'
     category = 'Searching'
@@ -76,7 +78,8 @@ class ComponentPalette(PlumberPart):
         self.categories = {}
         self.components = {}
 
-        for c in (FileInputComponent(), FilterComponent()):
+        for c in (FileInputComponent(), FilterComponent(),
+                  FileOutputComponent()):
             self.components[c.name] = c
 
     def init_ui(self):
@@ -129,27 +132,26 @@ class Canvas(PlumberPart):
 
         self.dot = (0, 0)
 
-    def do_click(self, drawing, event):
+    def do_click(self, canvas, event):
         self.dot = (int(event.x), int(event.y))
-        drawing.get_window().invalidate_rect(None, True)
+        canvas.get_window().invalidate_rect(None, True)
 
-    #def do_drag_motion(self, drawing, context, x, y, time):
+    #def do_drag_motion(self, canvas, context, x, y, time):
     #    print('drag motion ({}, {}) at {}'.format(x, y, time))
-    #    Gdk.drag_status(context, Gdk.DragAction.COPY, time)
     #    return True
 
-    #def do_drag_drop(self, drawing, context, x, y, time):
+    #def do_drag_drop(self, canvas, context, x, y, time):
     #    print('drag drop ({}, {}) at {}'.format(x, y, time))
-    #    drawing.drag_get_data(context, Gdk.Atom.intern('foo', False), time)
+    #    canvas.drag_get_data(context, Gdk.Atom.intern('foo', False), time)
     #    return True
 
-    def do_drag_received(self, drawing, context, x, y, data, info, time):
+    def do_drag_received(self, canvas, context, x, y, data, info, time):
         print('drag data received ({}, {}) at {} with {}'.format(x, y, time, data.get_text()))
         Gtk.drag_finish(context, True, False, time)
 
-    def do_draw(self, drawing, ctx):
-        width = drawing.get_allocated_width()
-        height = drawing.get_allocated_height()
+    def do_draw(self, canvas, ctx):
+        width = canvas.get_allocated_width()
+        height = canvas.get_allocated_height()
 
         self.draw_background(ctx, width, height)
         self.draw_grid(ctx, width, height)

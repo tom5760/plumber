@@ -89,28 +89,15 @@
                         <property name="position">200</property>
                         <child>
                             <object class="GtkToolPalette" id="component_palette">
-                                <property name="can_focus">False</property>
-                                <property name="toolbar_style">both</property>
+                                <property name="toolbar_style">both-horiz</property>
                             </object>
-                            <packing>
-                                <property name="resize">True</property>
-                                <property name="shrink">True</property>
-                            </packing>
                         </child>
                         <child>
-                            <object class="GtkDrawingArea" id="canvas">
-                                <property name="can_focus">False</property>
-                            </object>
-                            <packing>
-                                <property name="resize">True</property>
-                                <property name="shrink">True</property>
-                            </packing>
+                            <object class="GtkDrawingArea" id="canvas"/>
                         </child>
                     </object>
                     <packing>
                         <property name="expand">True</property>
-                        <property name="fill">True</property>
-                        <property name="position">1</property>
                     </packing>
                 </child>
             </object>
