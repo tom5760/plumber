@@ -3,7 +3,7 @@
 import sys
 import math
 
-from gi.repository import Gtk, Gdk
+from gi.repository import Gtk, Gdk, GObject
 
 UI_FILE = 'gui.xml'
 ID_MAIN_WINDOW = 'main_window'
@@ -59,9 +59,12 @@ class Toolbar(PlumberPart):
     def do_help(self, button):
         print('HELP')
 
-class ComponentDrawer(object):
+class ComponentDrawer(Gtk.DrawingArea):
     ICON_WIDTH = 50
     ICON_HEIGHT = 50
+
+    CANVAS_WIDTH = 150
+    CANVAS_HEIGHT = 75
 
     BASE_MARGIN = 5
     BASE_CORNER_RADIUS = 4
@@ -75,25 +78,46 @@ class ComponentDrawer(object):
     PORT_IN_COLOR = (34, 139, 34)
     PORT_OUT_COLOR = (255, 140, 0)
 
-    def __init__(self, component):
+    def __init__(self, component, is_icon):
+        super().__init__()
         self.component = component
+        self.is_icon = is_icon
+        self.is_active = False
 
-    def make_icon(self):
-        icon = Gtk.DrawingArea()
-        icon.set_size_request(self.ICON_WIDTH, self.ICON_HEIGHT)
-        icon.connect('draw', self.do_draw, False)
+        if self.is_icon:
+            self.set_size_request(self.ICON_WIDTH, self.ICON_HEIGHT)
+        else:
+            self.set_can_focus(True)
+            self.set_size_request(self.CANVAS_WIDTH, self.CANVAS_HEIGHT)
+            self.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
+                            | Gdk.EventMask.BUTTON_MOTION_MASK
+                            | Gdk.EventMask.BUTTON_PRESS_MASK
+                            | Gdk.EventMask.BUTTON_RELEASE_MASK)
+
+            self.connect('draw', self.do_draw)
+            self.connect('button-press-event', self.do_press)
+            self.connect('button-release-event', self.do_release)
+
+    def do_press(self, component, event):
+        print('Press')
+        self.is_active = True
+        self.grab_focus()
+
+    def do_release(self, component, event):
+        print('Release')
+        self.is_active = False
 
     def do_draw(self, *args):
-        if len(args) == 2:
-            ctx, draw_text = args
+        if len(args) == 1:
+            ctx = args[0]
         else:
-            _, ctx, draw_text = args
+            ctx = args[1]
 
         width = self.get_allocated_width()
         height = self.get_allocated_height()
-        self.draw_component(ctx, width, height, draw_text)
+        self.draw_component(ctx, width, height)
 
-    def draw_component(self, ctx, width, height, draw_text):
+    def draw_component(self, ctx, width, height):
         self.draw_base(ctx, width, height)
         self.draw_inputs(ctx, width, height)
         self.draw_outputs(ctx, width, height)
@@ -189,7 +213,7 @@ class ComponentPalette(PlumberPart):
 
         for component in self.components.values():
             button = Gtk.ToolButton.new(None, component.name)
-            button.set_icon_widget(ComponentDrawer(component).make_icon())
+            button.set_icon_widget(ComponentDrawer(component, True))
             button.set_use_drag_window(True)
             button.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, None, Gdk.DragAction.COPY)
             button.drag_source_add_text_targets()
@@ -214,23 +238,18 @@ class ComponentPalette(PlumberPart):
         data.set_text(name, len(name))
         print('component drag data', name)
 
-class CanvasComponent(object):
-    def __init__(self, component):
-        self.component = component
-        self.position = (400, 400)
-
-    def draw(self, ctx, width, height):
-        drawer = ComponentDrawer(self.component)
-        drawer.draw_component(ctx, width, height, True)
-
 class Canvas(PlumberPart):
     COMPONENT_WIDTH = 150
     COMPONENT_HEIGHT = 75
 
-    def init_ui(self):
-        self.components = [CanvasComponent(SplitComponent())]
+    def __init__(self, builder):
+        super().__init__(builder)
+        self.active_component = None
 
+    def init_ui(self):
         canvas = self.builder.get_object(ID_CANVAS)
+
+        canvas.put(ComponentDrawer(SplitComponent(), False), 300, 300)
 
         canvas.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
                           | Gdk.EventMask.BUTTON_MOTION_MASK
@@ -242,15 +261,28 @@ class Canvas(PlumberPart):
         canvas.drag_dest_add_text_targets()
 
         canvas.connect('draw', self.do_draw)
-        canvas.connect('button-press-event', self.do_click)
         canvas.connect('motion-notify-event', self.do_click)
         #canvas.connect('drag-motion', self.do_drag_motion)
         #canvas.connect('drag-drop', self.do_drag_drop)
         canvas.connect('drag-data-received', self.do_drag_received)
 
     def do_click(self, canvas, event):
-        print('Click:', event.x, event.y)
-        #canvas.get_window().invalidate_rect(None, True)
+        component = canvas.get_focus_child()
+        if not component or not component.is_active:
+            return
+
+        canvas = self.builder.get_object(ID_CANVAS)
+
+        value = GObject.Value()
+        value.init(GObject.TYPE_INT)
+
+        canvas.child_get_property(component, 'x', value)
+        value.set_int(value.get_int() + event.x - self.COMPONENT_WIDTH / 2)
+        canvas.child_set_property(component, 'x', value)
+
+        canvas.child_get_property(component, 'y', value)
+        value.set_int(value.get_int() + event.y - self.COMPONENT_HEIGHT / 2)
+        canvas.child_set_property(component, 'y', value)
 
     #def do_drag_motion(self, canvas, context, x, y, time):
     #    print('drag motion ({}, {}) at {}'.format(x, y, time))
@@ -271,7 +303,7 @@ class Canvas(PlumberPart):
 
         self.draw_background(ctx, width, height)
         self.draw_grid(ctx, width, height)
-        self.draw_components(ctx, width, height)
+        #self.draw_components(ctx, width, height)
 
     def draw_background(self, ctx, width, height):
         ctx.save()

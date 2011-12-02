@@ -93,7 +93,7 @@
                             </object>
                         </child>
                         <child>
-                            <object class="GtkDrawingArea" id="canvas"/>
+                            <object class="GtkLayout" id="canvas"/>
                         </child>
                     </object>
                     <packing>
