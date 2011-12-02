@@ -59,17 +59,119 @@ class Toolbar(PlumberPart):
     def do_help(self, button):
         print('HELP')
 
+class ComponentDrawer(object):
+    ICON_WIDTH = 50
+    ICON_HEIGHT = 50
+
+    BASE_MARGIN = 5
+    BASE_CORNER_RADIUS = 4
+    BASE_LINE_WIDTH = 2
+    BASE_STROKE_COLOR = (0, 0, 0)
+    BASE_FILL_COLOR = (0, 191, 255)
+
+    PORT_RADIUS = 4
+    PORT_LINE_WIDTH = 1
+    PORT_STROKE_COLOR = (0, 0, 0)
+    PORT_IN_COLOR = (34, 139, 34)
+    PORT_OUT_COLOR = (255, 140, 0)
+
+    def __init__(self, component):
+        self.component = component
+
+    def make_icon(self):
+        icon = Gtk.DrawingArea()
+        icon.set_size_request(self.ICON_WIDTH, self.ICON_HEIGHT)
+        icon.connect('draw', self.do_draw, False)
+
+    def do_draw(self, *args):
+        if len(args) == 2:
+            ctx, draw_text = args
+        else:
+            _, ctx, draw_text = args
+
+        width = self.get_allocated_width()
+        height = self.get_allocated_height()
+        self.draw_component(ctx, width, height, draw_text)
+
+    def draw_component(self, ctx, width, height, draw_text):
+        self.draw_base(ctx, width, height)
+        self.draw_inputs(ctx, width, height)
+        self.draw_outputs(ctx, width, height)
+
+    @classmethod
+    def draw_base(cls, ctx, width, height):
+        x1 = y1 = cls.BASE_MARGIN
+        x2 = width - cls.BASE_MARGIN
+        y2 = height - cls.BASE_MARGIN
+        r = cls.BASE_CORNER_RADIUS
+
+        # From http://cairographics.org/cookbook/roundedrectangles Method D
+        ctx.arc(x1 + r, y1 + r, r, 2 * (math.pi / 2), 3 * (math.pi / 2))
+        ctx.arc(x2 - r, y1 + r, r, 3 * (math.pi / 2), 4 * (math.pi / 2))
+        ctx.arc(x2 - r, y2 - r, r, 0, math.pi / 2)
+        ctx.arc(x1 + r, y2 - r, r, math.pi / 2, 2 * (math.pi / 2))
+        ctx.close_path()
+
+        ctx.set_line_width(cls.BASE_LINE_WIDTH)
+        ctx.set_source_rgb(*cls.BASE_STROKE_COLOR)
+        ctx.stroke_preserve()
+        ctx.set_source_rgb(*cls.BASE_FILL_COLOR)
+        ctx.fill()
+
+    def draw_inputs(self, ctx, width, height):
+        if self.component.inputs == 0:
+            return
+
+        self.draw_ports(ctx, width, height, self.BASE_MARGIN,
+                        self.component.inputs)
+
+    def draw_outputs(self, ctx, width, height):
+        if self.component.outputs == 0:
+            return
+
+        self.draw_ports(ctx, width, height, width - self.BASE_MARGIN,
+                        self.component.outputs)
+
+    @classmethod
+    def draw_ports(cls, ctx, width, height, x, count):
+        available_space = (height - cls.BASE_MARGIN * 2)
+        offset = available_space / (count + 1)
+
+        y = cls.BASE_MARGIN + offset
+
+        ctx.set_line_width(cls.PORT_LINE_WIDTH)
+        for c in range(count):
+            ctx.arc(x, y, cls.PORT_RADIUS, 0, 360)
+            ctx.set_source_rgb(0, 0, 0)
+            ctx.close_path()
+            ctx.stroke_preserve()
+            ctx.set_source_rgb(255, 0, 0)
+            ctx.fill()
+            y += offset
+
 class FileInputComponent(object):
     name = 'File Input'
     category = 'I/O'
+    inputs = 0
+    outputs = 1
 
 class FileOutputComponent(object):
     name = 'File Output'
     category = 'I/O'
+    inputs = 1
+    outputs = 0
 
 class FilterComponent(object):
     name = 'Filter'
     category = 'Searching'
+    inputs = 1
+    outputs = 1
+
+class SplitComponent(object):
+    name = 'Split'
+    category = 'Editing'
+    inputs = 1
+    outputs = 2
 
 class ComponentPalette(PlumberPart):
     def __init__(self, builder):
@@ -79,18 +181,19 @@ class ComponentPalette(PlumberPart):
         self.components = {}
 
         for c in (FileInputComponent(), FilterComponent(),
-                  FileOutputComponent()):
+                  FileOutputComponent(), SplitComponent()):
             self.components[c.name] = c
 
     def init_ui(self):
         pane = self.builder.get_object(ID_COMPONENT_PALETTE)
 
         for component in self.components.values():
-            button = Gtk.ToolButton.new_from_stock(Gtk.STOCK_ADD)
-            button.set_label(component.name)
+            button = Gtk.ToolButton.new(None, component.name)
+            button.set_icon_widget(ComponentDrawer(component).make_icon())
             button.set_use_drag_window(True)
             button.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, None, Gdk.DragAction.COPY)
             button.drag_source_add_text_targets()
+
             button.connect('drag-begin', self.do_drag_begin, component.name)
             button.connect('drag-data-get', self.do_data_get, component.name)
 
@@ -104,14 +207,29 @@ class ComponentPalette(PlumberPart):
             group.add(button)
 
     def do_drag_begin(self, button, drag_context, name):
-        print('drag', name)
+        print('drag', name, button)
+        #button.drag_source_set_icon_pixbuf(buf)
 
     def do_data_get(self, button, context, data, info, time, name):
         data.set_text(name, len(name))
         print('component drag data', name)
 
+class CanvasComponent(object):
+    def __init__(self, component):
+        self.component = component
+        self.position = (400, 400)
+
+    def draw(self, ctx, width, height):
+        drawer = ComponentDrawer(self.component)
+        drawer.draw_component(ctx, width, height, True)
+
 class Canvas(PlumberPart):
+    COMPONENT_WIDTH = 150
+    COMPONENT_HEIGHT = 75
+
     def init_ui(self):
+        self.components = [CanvasComponent(SplitComponent())]
+
         canvas = self.builder.get_object(ID_CANVAS)
 
         canvas.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
@@ -130,11 +248,9 @@ class Canvas(PlumberPart):
         #canvas.connect('drag-drop', self.do_drag_drop)
         canvas.connect('drag-data-received', self.do_drag_received)
 
-        self.dot = (0, 0)
-
     def do_click(self, canvas, event):
-        self.dot = (int(event.x), int(event.y))
-        canvas.get_window().invalidate_rect(None, True)
+        print('Click:', event.x, event.y)
+        #canvas.get_window().invalidate_rect(None, True)
 
     #def do_drag_motion(self, canvas, context, x, y, time):
     #    print('drag motion ({}, {}) at {}'.format(x, y, time))
@@ -155,14 +271,17 @@ class Canvas(PlumberPart):
 
         self.draw_background(ctx, width, height)
         self.draw_grid(ctx, width, height)
-        self.draw_dot(ctx, width, height)
+        self.draw_components(ctx, width, height)
 
     def draw_background(self, ctx, width, height):
+        ctx.save()
         ctx.set_source_rgb(255, 255, 255)
         ctx.rectangle(0, 0, width, height)
         ctx.fill()
+        ctx.restore()
 
     def draw_grid(self, ctx, width, height):
+        ctx.save()
         ctx.set_line_width(GRID_WIDTH)
         ctx.set_source_rgb(0, 0, 0)
         ctx.set_dash((GRID_LENGTH,))
@@ -175,28 +294,43 @@ class Canvas(PlumberPart):
             ctx.move_to(0, y)
             ctx.line_to(width, y)
         ctx.stroke()
+        ctx.restore()
 
-    def draw_spiral(self, ctx, width, height):
-        wd = .02 * width
-        hd = .02 * height
+    def draw_components(self, ctx, width, height):
+        for component in self.components:
+            x, y = component.position
+            x1 = x - self.COMPONENT_WIDTH / 2
+            y1 = y - self.COMPONENT_HEIGHT / 2
+            ctx.rectangle(x1, y1, self.COMPONENT_WIDTH, self.COMPONENT_HEIGHT)
+            ctx.save()
+            ctx.clip()
+            ctx.translate(x1, y1)
 
-        width -= 2
-        height -= 2
+            component.draw(ctx, self.COMPONENT_WIDTH, self.COMPONENT_HEIGHT)
 
-        ctx.move_to (width + 1, 1-hd)
-        for i in range(9):
-            ctx.rel_line_to (0, height - hd * (2 * i - 1))
-            ctx.rel_line_to (- (width - wd * (2 *i)), 0)
-            ctx.rel_line_to (0, - (height - hd * (2*i)))
-            ctx.rel_line_to (width - wd * (2 * i + 1), 0)
+            ctx.restore()
 
-        ctx.set_source_rgb (0, 0, 1)
-        ctx.stroke()
+    #def draw_spiral(self, ctx, width, height):
+    #    wd = .02 * width
+    #    hd = .02 * height
 
-    def draw_dot(self, ctx, width, height):
-        ctx.arc(self.dot[0], self.dot[1], 10, 0, 360)
-        ctx.set_source_rgb(0, 0, 0)
-        ctx.fill()
+    #    width -= 2
+    #    height -= 2
+
+    #    ctx.move_to (width + 1, 1-hd)
+    #    for i in range(9):
+    #        ctx.rel_line_to (0, height - hd * (2 * i - 1))
+    #        ctx.rel_line_to (- (width - wd * (2 *i)), 0)
+    #        ctx.rel_line_to (0, - (height - hd * (2*i)))
+    #        ctx.rel_line_to (width - wd * (2 * i + 1), 0)
+
+    #    ctx.set_source_rgb (0, 0, 1)
+    #    ctx.stroke()
+
+    #def draw_dot(self, ctx, width, height):
+    #    ctx.arc(self.dot[0], self.dot[1], 10, 0, 360)
+    #    ctx.set_source_rgb(0, 0, 0)
+    #    ctx.fill()
 
 class Plumber(object):
     def __init__(self):
