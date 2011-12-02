@@ -6,15 +6,13 @@ import math
 import cairo
 from gi.repository import Gtk, Gdk, GObject
 
+import components
+
 UI_FILE = 'gui.xml'
 ID_MAIN_WINDOW = 'main_window'
 ID_TOOLBAR_BUTTON = 'toolbar_'
 ID_COMPONENT_PALETTE = 'component_palette'
 ID_CANVAS = 'canvas'
-
-GRID_SPACING = 30
-GRID_LENGTH = 3
-GRID_WIDTH = 0.1
 
 class FullPipeError(Exception): pass
 
@@ -67,33 +65,36 @@ class ComponentDrawer(Gtk.DrawingArea):
     ICON_WIDTH = 50
     ICON_HEIGHT = 50
 
-    CANVAS_WIDTH = 150
-    CANVAS_HEIGHT = 75
+    CANVAS_WIDTH = 125
+    CANVAS_HEIGHT = 55
 
     FONT_FACE = 'Sans'
-    FONT_SIZE = 20
+    FONT_SIZE = 15
 
     BASE_MARGIN = 5
     BASE_CORNER_RADIUS = 4
     BASE_LINE_WIDTH = 2
     BASE_STROKE_COLOR = (0, 0, 0)
-    BASE_FILL_COLOR = (0, 191, 255)
-    BASE_FILL_COLOR_SELECTED = (255, 215, 0)
+    BASE_FILL_COLOR = (135 / 255, 206 / 255, 250 / 255, 0.1)
+    BASE_FILL_COLOR_SELECTED = (255 / 255, 215 / 255, 0 / 255, 0.1)
 
     PORT_RADIUS = 4
     PORT_LINE_WIDTH = 1
     PORT_STROKE_COLOR = (0, 0, 0)
-    PORT_IN_COLOR = (34, 139, 34)
-    PORT_OUT_COLOR = (255, 140, 0)
+    PORT_IN_COLOR = (34 / 255, 139 / 255, 34 / 255)
+    PORT_OUT_COLOR = (255 / 255, 140 / 255, 0 / 255)
 
-    def __init__(self, component, is_icon):
+    def __init__(self, builder, component, is_icon):
         super().__init__()
+        self.builder = builder
         self.component = component
         self.is_icon = is_icon
         self.is_drag = False
         self.is_selected = False
 
         self.connect('draw', self.do_draw)
+
+        #self.override_background_color(0, Gdk.RGBA(0, 0, 0, 0.1))
 
         if self.is_icon:
             self.set_size_request(self.ICON_WIDTH, self.ICON_HEIGHT)
@@ -116,6 +117,29 @@ class ComponentDrawer(Gtk.DrawingArea):
             self.is_selected = True
             self.get_window().invalidate_rect(None, True)
 
+        if event.type == Gdk.EventType._2BUTTON_PRESS:
+            if self.component.properties_dialog is None:
+                return
+
+            dialog = Gtk.Dialog(self.component.name + ' Properties',
+                                self.builder.get_object(ID_MAIN_WINDOW),
+                                Gtk.DialogFlags.MODAL
+                                    | Gtk.DialogFlags.DESTROY_WITH_PARENT,
+                                (Gtk.STOCK_OK, Gtk.ResponseType.OK,
+                                    Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+
+            dbuilder = Gtk.Builder()
+            dbuilder.add_from_string(self.component.properties_dialog)
+
+            content_area = dialog.get_content_area()
+            content_area.pack_start(dbuilder.get_object('properties_box'),
+                                    False, False, 0)
+            content_area.show_all()
+
+            response = dialog.run()
+            print('Response:', response)
+            dialog.destroy()
+
     def do_release(self, component, event):
         self.is_drag = False
 
@@ -127,6 +151,13 @@ class ComponentDrawer(Gtk.DrawingArea):
 
         width = self.get_allocated_width()
         height = self.get_allocated_height()
+
+        ctx.save()
+        ctx.set_source_rgba(0, 0, 0, 0)
+        ctx.rectangle(0, 0, width, height)
+        ctx.fill()
+        ctx.restore()
+
         self.draw_component(ctx, width, height)
 
     def draw_component(self, ctx, width, height):
@@ -153,9 +184,9 @@ class ComponentDrawer(Gtk.DrawingArea):
         ctx.set_source_rgb(*self.BASE_STROKE_COLOR)
         ctx.stroke_preserve()
         if self.is_selected:
-            ctx.set_source_rgb(*self.BASE_FILL_COLOR_SELECTED)
+            ctx.set_source_rgba(*self.BASE_FILL_COLOR_SELECTED)
         else:
-            ctx.set_source_rgb(*self.BASE_FILL_COLOR)
+            ctx.set_source_rgba(*self.BASE_FILL_COLOR)
         ctx.fill()
 
     def draw_inputs(self, ctx, width, height):
@@ -163,17 +194,17 @@ class ComponentDrawer(Gtk.DrawingArea):
             return
 
         self.draw_ports(ctx, width, height, self.BASE_MARGIN,
-                        self.component.inputs)
+                        self.component.inputs, self.PORT_IN_COLOR)
 
     def draw_outputs(self, ctx, width, height):
         if self.component.outputs == 0:
             return
 
         self.draw_ports(ctx, width, height, width - self.BASE_MARGIN,
-                        self.component.outputs)
+                        self.component.outputs, self.PORT_OUT_COLOR)
 
     @classmethod
-    def draw_ports(cls, ctx, width, height, x, count):
+    def draw_ports(cls, ctx, width, height, x, count, color):
         available_space = (height - cls.BASE_MARGIN * 2)
         offset = available_space / (count + 1)
 
@@ -185,7 +216,7 @@ class ComponentDrawer(Gtk.DrawingArea):
             ctx.set_source_rgb(0, 0, 0)
             ctx.close_path()
             ctx.stroke_preserve()
-            ctx.set_source_rgb(255, 0, 0)
+            ctx.set_source_rgb(*color)
             ctx.fill()
             y += offset
 
@@ -197,53 +228,6 @@ class ComponentDrawer(Gtk.DrawingArea):
         ctx.show_text(self.component.name)
         ctx.stroke()
 
-class Component():
-    def __init__(self):
-        self.input_pipes = []
-        self.output_pipes = []
-
-    def attach_input(self, pipe):
-        return self.attach(self.input_pipes, self.inputs, pipe)
-
-    def attach_output(self, pipe):
-        return self.attach(self.output_pipes, self.outputs, pipe)
-
-    def attach(self, list, count, pipe):
-        if len(list) >= count:
-            raise FullPipeError()
-        list.append(pipe)
-        return list.index(pipe) + 1
-
-    def detach_input(self, pipe):
-        self.input_pipes.remove(pipe)
-
-    def detach_output(self, pipe):
-        self.output_pipes.remove(pipe)
-
-class FileInputComponent(Component):
-    name = 'File Input'
-    category = 'I/O'
-    inputs = 0
-    outputs = 1
-
-class FileOutputComponent(Component):
-    name = 'File Output'
-    category = 'I/O'
-    inputs = 1
-    outputs = 0
-
-class FilterComponent(Component):
-    name = 'Filter'
-    category = 'Searching'
-    inputs = 1
-    outputs = 1
-
-class SplitComponent(Component):
-    name = 'Split'
-    category = 'Editing'
-    inputs = 1
-    outputs = 2
-
 class ComponentPalette(PlumberPart):
     def init_ui(self):
         self.categories = {}
@@ -251,7 +235,8 @@ class ComponentPalette(PlumberPart):
 
         for component in self.components.values():
             button = Gtk.ToolButton.new(None, component.name)
-            button.set_icon_widget(ComponentDrawer(component, True))
+            button.set_icon_widget(ComponentDrawer(self.builder, component,
+                                                   True))
             button.set_use_drag_window(True)
             button.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, None, Gdk.DragAction.COPY)
             button.drag_source_add_text_targets()
@@ -276,7 +261,7 @@ class ComponentPalette(PlumberPart):
         data.set_text(name, len(name))
 
 class CanvasPipe(object):
-    PIPE_WIDTH = 8
+    PIPE_WIDTH = 6
     PIPE_COLOR = (0, 0, 0)
 
     def __init__(self, start, end):
@@ -298,7 +283,7 @@ class CanvasPipe(object):
         value = GObject.Value()
         value.init(GObject.TYPE_INT)
 
-        height = (Canvas.COMPONENT_HEIGHT - ComponentDrawer.BASE_MARGIN * 2)
+        height = (ComponentDrawer.CANVAS_HEIGHT - ComponentDrawer.BASE_MARGIN * 2)
 
         start_n = self.start.component.output_pipes.index(self) + 1
         end_n = self.end.component.input_pipes.index(self) + 1
@@ -307,7 +292,7 @@ class CanvasPipe(object):
         end_offset = height / (self.end.component.inputs + 1) * end_n
 
         canvas.child_get_property(self.start, 'x', value)
-        start_x = value.get_int() + Canvas.COMPONENT_WIDTH
+        start_x = value.get_int() + ComponentDrawer.CANVAS_WIDTH
         canvas.child_get_property(self.start, 'y', value)
         start_y = value.get_int() + start_offset
 
@@ -323,8 +308,9 @@ class CanvasPipe(object):
         ctx.stroke()
 
 class Canvas(PlumberPart):
-    COMPONENT_WIDTH = 150
-    COMPONENT_HEIGHT = 75
+    GRID_SPACING = 30
+    GRID_LENGTH = 3
+    GRID_WIDTH = 0.1
 
     def init_ui(self):
         self.pipes = []
@@ -395,11 +381,13 @@ class Canvas(PlumberPart):
         value.init(GObject.TYPE_INT)
 
         canvas.child_get_property(component, 'x', value)
-        value.set_int(value.get_int() + event.x - self.COMPONENT_WIDTH / 2)
+        value.set_int(value.get_int() + event.x
+                      - ComponentDrawer.CANVAS_WIDTH / 2)
         canvas.child_set_property(component, 'x', value)
 
         canvas.child_get_property(component, 'y', value)
-        value.set_int(value.get_int() + event.y - self.COMPONENT_HEIGHT / 2)
+        value.set_int(value.get_int() + event.y
+                      - ComponentDrawer.CANVAS_HEIGHT / 2)
         canvas.child_set_property(component, 'y', value)
 
     #def do_drag_motion(self, canvas, context, x, y, time):
@@ -415,11 +403,11 @@ class Canvas(PlumberPart):
         component = self.components[data.get_text()]
         Gtk.drag_finish(context, True, False, time)
 
-        drawer = ComponentDrawer(component(), False)
+        drawer = ComponentDrawer(self.builder, component(), False)
         drawer.set_visible(True)
         canvas.put(drawer,
-                   x - self.COMPONENT_WIDTH / 2,
-                   y - self.COMPONENT_HEIGHT / 2)
+                   x - ComponentDrawer.CANVAS_WIDTH / 2,
+                   y - ComponentDrawer.CANVAS_HEIGHT/ 2)
 
         canvas.get_window().invalidate_rect(None, True)
 
@@ -444,15 +432,15 @@ class Canvas(PlumberPart):
 
     def draw_grid(self, ctx, width, height):
         ctx.save()
-        ctx.set_line_width(GRID_WIDTH)
+        ctx.set_line_width(self.GRID_WIDTH)
         ctx.set_source_rgb(0, 0, 0)
-        ctx.set_dash((GRID_LENGTH,))
+        ctx.set_dash((self.GRID_LENGTH,))
 
-        for x in range(0, width, GRID_SPACING):
+        for x in range(0, width, self.GRID_SPACING):
             ctx.move_to(x, 0)
             ctx.line_to(x, height)
 
-        for y in range(0, height, GRID_SPACING):
+        for y in range(0, height, self.GRID_SPACING):
             ctx.move_to(0, y)
             ctx.line_to(width, y)
         ctx.stroke()
@@ -464,8 +452,7 @@ class Plumber(object):
         self.builder.add_from_file(UI_FILE)
 
         self.components = {}
-        for c in (FileInputComponent, FilterComponent,
-                  FileOutputComponent, SplitComponent):
+        for c in components.ACTIVE_COMPONENTS:
             self.components[c.name] = c
 
         self.init_ui()
