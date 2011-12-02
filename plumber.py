@@ -8,11 +8,14 @@ from gi.repository import Gtk, Gdk
 UI_FILE = 'gui.xml'
 ID_MAIN_WINDOW = 'main_window'
 ID_TOOLBAR_BUTTON = 'toolbar_'
+ID_COMPONENT_PALETTE = 'component_palette'
 ID_CANVAS = 'canvas'
 
 GRID_SPACING = 30
 GRID_LENGTH = 3
 GRID_WIDTH = 0.1
+
+#COMPONENT_TARGET = Gtk.TargetEntry.new('component', Gtk.TargetFlags.SAME_APP, 0)
 
 class PlumberPart(object):
     def __init__(self, builder):
@@ -58,26 +61,91 @@ class Toolbar(PlumberPart):
     def do_help(self, button):
         print('HELP')
 
-class ComponentPanes(PlumberPart):
+class FileInputComponent(object):
+    name = 'File Input'
+    category = 'I/O'
+
+class FilterComponent(object):
+    name = 'Filter'
+    category = 'Searching'
+
+class ComponentPalette(PlumberPart):
+    def __init__(self, builder):
+        super().__init__(builder)
+
+        self.categories = {}
+        self.components = {}
+
+        for c in (FileInputComponent(), FilterComponent()):
+            self.components[c.name] = c
+
     def init_ui(self):
-        pass
+        pane = self.builder.get_object(ID_COMPONENT_PALETTE)
+
+        for component in self.components.values():
+            button = Gtk.ToolButton.new_from_stock(Gtk.STOCK_ADD)
+            button.set_label(component.name)
+            button.set_use_drag_window(True)
+            button.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, None, Gdk.DragAction.COPY)
+            button.drag_source_add_text_targets()
+            button.connect('drag-begin', self.do_drag_begin, component.name)
+            button.connect('drag-data-get', self.do_data_get, component.name)
+
+            try:
+                group = self.categories[component.category]
+            except KeyError:
+                group = Gtk.ToolItemGroup(label=component.category)
+                self.categories[component.category] = group
+                pane.add(group)
+
+            group.add(button)
+
+    def do_drag_begin(self, button, drag_context, name):
+        print('drag', name)
+
+    def do_data_get(self, button, context, data, info, time, name):
+        data.set_text(name, len(name))
+        print('component drag data', name)
 
 class Canvas(PlumberPart):
     def init_ui(self):
         canvas = self.builder.get_object(ID_CANVAS)
+
         canvas.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
                           | Gdk.EventMask.BUTTON_MOTION_MASK
                           | Gdk.EventMask.BUTTON_PRESS_MASK
                           | Gdk.EventMask.BUTTON_RELEASE_MASK)
+
+        #canvas.drag_dest_set(Gtk.DestDefaults.MOTION | Gtk.DestDefaults.DROP,
+        canvas.drag_dest_set(Gtk.DestDefaults.ALL, None, Gdk.DragAction.COPY)
+        canvas.drag_dest_add_text_targets()
+
         canvas.connect('draw', self.do_draw)
         canvas.connect('button-press-event', self.do_click)
         canvas.connect('motion-notify-event', self.do_click)
+        #canvas.connect('drag-motion', self.do_drag_motion)
+        #canvas.connect('drag-drop', self.do_drag_drop)
+        canvas.connect('drag-data-received', self.do_drag_received)
 
         self.dot = (0, 0)
 
     def do_click(self, drawing, event):
         self.dot = (int(event.x), int(event.y))
         drawing.get_window().invalidate_rect(None, True)
+
+    #def do_drag_motion(self, drawing, context, x, y, time):
+    #    print('drag motion ({}, {}) at {}'.format(x, y, time))
+    #    Gdk.drag_status(context, Gdk.DragAction.COPY, time)
+    #    return True
+
+    #def do_drag_drop(self, drawing, context, x, y, time):
+    #    print('drag drop ({}, {}) at {}'.format(x, y, time))
+    #    drawing.drag_get_data(context, Gdk.Atom.intern('foo', False), time)
+    #    return True
+
+    def do_drag_received(self, drawing, context, x, y, data, info, time):
+        print('drag data received ({}, {}) at {} with {}'.format(x, y, time, data.get_text()))
+        Gtk.drag_finish(context, True, False, time)
 
     def do_draw(self, drawing, ctx):
         width = drawing.get_allocated_width()
@@ -144,7 +212,7 @@ class Plumber(object):
         main_window.connect('destroy', Gtk.main_quit)
 
         Toolbar(self.builder).init_ui()
-        ComponentPanes(self.builder).init_ui()
+        ComponentPalette(self.builder).init_ui()
         Canvas(self.builder).init_ui()
 
 def main(argv):
