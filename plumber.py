@@ -16,8 +16,9 @@ GRID_LENGTH = 3
 GRID_WIDTH = 0.1
 
 class PlumberPart(object):
-    def __init__(self, builder):
+    def __init__(self, builder, components):
         self.builder = builder
+        self.components = components
 
     # This class needs to be subclassed
     def init_ui(self):
@@ -84,6 +85,8 @@ class ComponentDrawer(Gtk.DrawingArea):
         self.is_icon = is_icon
         self.is_active = False
 
+        self.connect('draw', self.do_draw)
+
         if self.is_icon:
             self.set_size_request(self.ICON_WIDTH, self.ICON_HEIGHT)
         else:
@@ -94,17 +97,14 @@ class ComponentDrawer(Gtk.DrawingArea):
                             | Gdk.EventMask.BUTTON_PRESS_MASK
                             | Gdk.EventMask.BUTTON_RELEASE_MASK)
 
-            self.connect('draw', self.do_draw)
             self.connect('button-press-event', self.do_press)
             self.connect('button-release-event', self.do_release)
 
     def do_press(self, component, event):
-        print('Press')
         self.is_active = True
         self.grab_focus()
 
     def do_release(self, component, event):
-        print('Release')
         self.is_active = False
 
     def do_draw(self, *args):
@@ -198,17 +198,8 @@ class SplitComponent(object):
     outputs = 2
 
 class ComponentPalette(PlumberPart):
-    def __init__(self, builder):
-        super().__init__(builder)
-
-        self.categories = {}
-        self.components = {}
-
-        for c in (FileInputComponent(), FilterComponent(),
-                  FileOutputComponent(), SplitComponent()):
-            self.components[c.name] = c
-
     def init_ui(self):
+        self.categories = {}
         pane = self.builder.get_object(ID_COMPONENT_PALETTE)
 
         for component in self.components.values():
@@ -218,7 +209,7 @@ class ComponentPalette(PlumberPart):
             button.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, None, Gdk.DragAction.COPY)
             button.drag_source_add_text_targets()
 
-            button.connect('drag-begin', self.do_drag_begin, component.name)
+            #button.connect('drag-begin', self.do_drag_begin, component.name)
             button.connect('drag-data-get', self.do_data_get, component.name)
 
             try:
@@ -230,31 +221,27 @@ class ComponentPalette(PlumberPart):
 
             group.add(button)
 
-    def do_drag_begin(self, button, drag_context, name):
-        print('drag', name, button)
-        #button.drag_source_set_icon_pixbuf(buf)
+    #def do_drag_begin(self, button, drag_context, name):
+    #    print('drag', name, button)
+    #    #button.drag_source_set_icon_pixbuf(buf)
 
     def do_data_get(self, button, context, data, info, time, name):
         data.set_text(name, len(name))
-        print('component drag data', name)
 
 class Canvas(PlumberPart):
     COMPONENT_WIDTH = 150
     COMPONENT_HEIGHT = 75
 
-    def __init__(self, builder):
-        super().__init__(builder)
-        self.active_component = None
-
     def init_ui(self):
         canvas = self.builder.get_object(ID_CANVAS)
-
-        canvas.put(ComponentDrawer(SplitComponent(), False), 300, 300)
-
         canvas.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
                           | Gdk.EventMask.BUTTON_MOTION_MASK
                           | Gdk.EventMask.BUTTON_PRESS_MASK
                           | Gdk.EventMask.BUTTON_RELEASE_MASK)
+
+        canvas.set_reallocate_redraws(True)
+
+        #canvas.put(ComponentDrawer(SplitComponent(), False), 300, 300)
 
         #canvas.drag_dest_set(Gtk.DestDefaults.MOTION | Gtk.DestDefaults.DROP,
         canvas.drag_dest_set(Gtk.DestDefaults.ALL, None, Gdk.DragAction.COPY)
@@ -270,8 +257,6 @@ class Canvas(PlumberPart):
         component = canvas.get_focus_child()
         if not component or not component.is_active:
             return
-
-        canvas = self.builder.get_object(ID_CANVAS)
 
         value = GObject.Value()
         value.init(GObject.TYPE_INT)
@@ -294,8 +279,16 @@ class Canvas(PlumberPart):
     #    return True
 
     def do_drag_received(self, canvas, context, x, y, data, info, time):
-        print('drag data received ({}, {}) at {} with {}'.format(x, y, time, data.get_text()))
+        component = self.components[data.get_text()]
         Gtk.drag_finish(context, True, False, time)
+
+        drawer = ComponentDrawer(component(), False)
+        drawer.set_visible(True)
+        canvas.put(drawer,
+                   x - self.COMPONENT_WIDTH / 2,
+                   y - self.COMPONENT_HEIGHT / 2)
+
+        canvas.get_window().invalidate_rect(None, True)
 
     def do_draw(self, canvas, ctx):
         width = canvas.get_allocated_width()
@@ -303,7 +296,9 @@ class Canvas(PlumberPart):
 
         self.draw_background(ctx, width, height)
         self.draw_grid(ctx, width, height)
-        #self.draw_components(ctx, width, height)
+
+        value = GObject.Value()
+        value.init(GObject.TYPE_INT)
 
     def draw_background(self, ctx, width, height):
         ctx.save()
@@ -369,6 +364,11 @@ class Plumber(object):
         self.builder = Gtk.Builder()
         self.builder.add_from_file(UI_FILE)
 
+        self.components = {}
+        for c in (FileInputComponent, FilterComponent,
+                  FileOutputComponent, SplitComponent):
+            self.components[c.name] = c
+
         self.init_ui()
 
     def start(self):
@@ -379,9 +379,9 @@ class Plumber(object):
         main_window = self.builder.get_object(ID_MAIN_WINDOW)
         main_window.connect('destroy', Gtk.main_quit)
 
-        Toolbar(self.builder).init_ui()
-        ComponentPalette(self.builder).init_ui()
-        Canvas(self.builder).init_ui()
+        Toolbar(self.builder, self.components).init_ui()
+        ComponentPalette(self.builder, self.components).init_ui()
+        Canvas(self.builder, self.components).init_ui()
 
 def main(argv):
     p = Plumber()
