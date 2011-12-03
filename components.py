@@ -30,6 +30,9 @@ class Component(object):
     def init_properties(self, builder):
         pass
 
+    def get_function(self, fname):
+        return ''
+
 class FileInputComponent(Component):
     name = 'File Input'
     category = 'I/O'
@@ -60,7 +63,7 @@ class FileInputComponent(Component):
         </interface>'''
 
     def __init__(self):
-        super().__init__()
+        super(FileInputComponent, self).__init__()
         self.input_file = None
 
     def init_properties(self, builder):
@@ -70,6 +73,12 @@ class FileInputComponent(Component):
 
     def set_input_file(self, file_chooser):
         self.input_file = file_chooser.get_filename()
+
+    def get_function(self, fname):
+        return '''
+function {} {{
+    cat {} > $1
+}}'''.format(fname, self.input_file)
 
 class FileOutputComponent(Component):
     name = 'File Output'
@@ -101,7 +110,7 @@ class FileOutputComponent(Component):
         </interface>'''
 
     def __init__(self):
-        super().__init__()
+        super(FileOutputComponent, self).__init__()
         self.output_file = None
 
     def init_properties(self, builder):
@@ -111,6 +120,12 @@ class FileOutputComponent(Component):
 
     def set_output_file(self, file_chooser):
         self.output_file = file_chooser.get_filename()
+
+    def get_function(self, fname):
+        return '''
+function {} {{
+    cat $1 > {}
+}}'''.format(fname, self.output_file)
 
 class FilterComponent(Component):
     name = 'Filter'
@@ -141,7 +156,7 @@ class FilterComponent(Component):
         </interface>'''
 
     def __init__(self):
-        super().__init__()
+        super(FilterComponent, self).__init__()
         self.regex = None
 
     def init_properties(self, builder):
@@ -154,6 +169,12 @@ class FilterComponent(Component):
             self.regex = re.compile(entry.get_text())
         except re.error:
             pass
+
+    def get_function(self, fname):
+        return '''
+function {} {{
+    grep -Pe \'{}\' $1 > $2
+}}'''.format(fname, self.regex.pattern)
 
 class SplitComponent(Component):
     name = 'Split'
@@ -184,7 +205,7 @@ class SplitComponent(Component):
         </interface>'''
 
     def __init__(self):
-        super().__init__()
+        super(SplitComponent, self).__init__()
         self.delim = None
 
     def init_properties(self, builder):
@@ -192,8 +213,17 @@ class SplitComponent(Component):
         if self.delim:
             entry.set_text(self.delim)
 
-    def set_regex(self, entry):
+    def set_delim(self, entry):
         self.delim = entry.get_text()
+
+    def get_function(self, fname):
+        return '''
+function {fname} {{
+    while read line; do
+        echo $line | awk -F \'{delim}\' \'{{print $1}}\'
+        echo $line | awk -F \'{delim}\' \'{{print $1}}\' >&2
+    done < $1 > $2 2> $3
+}}'''.format(fname=fname, delim=self.delim)
 
 class AddComponent(Component):
     name = 'Add'
@@ -202,6 +232,15 @@ class AddComponent(Component):
     outputs = 1
 
     properties_dialog = None
+
+    def get_function(self, fname):
+        return '''
+function {} {{
+    while read x <&3; do
+        read y <&4
+        echo $x + $y | bc
+    done 3< $1 4< $2 > $3
+}}'''.format(fname)
 
 ACTIVE_COMPONENTS = [
         FileInputComponent,

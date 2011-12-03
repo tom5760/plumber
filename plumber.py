@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import division
 
 import sys
 import math
@@ -34,12 +35,50 @@ class Toolbar(PlumberPart):
     def do_save(self, button):
         dialog = Gtk.FileChooserDialog(
                 'Save...',
-                self.builder.get_object(ID_MAIN_WINDOW),
+                self.app.builder.get_object(ID_MAIN_WINDOW),
                 Gtk.FileChooserAction.SAVE,
                 (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                     Gtk.STOCK_OK, Gtk.ResponseType.OK))
-        response = dialog.run()
-        print('Save Response:', response)
+
+        if dialog.run() == Gtk.ResponseType.OK:
+            with open(dialog.get_filename(), 'w') as f:
+                functions = {}
+                f.write('#!/bin/bash\n')
+
+                n_funcs = 0
+                n_fifos = 0
+                for component_box in self.app.builder.get_object(ID_CANVAS):
+                    component = component_box.get_children()[0].component
+                    fname = 'component_{}()'.format(n_funcs)
+                    n_funcs += 1
+
+                    f.write(component.get_function(fname))
+
+                    out_fifos = []
+                    for i in range(len(component.output_pipes)):
+                        fifo_name = '/tmp/plumber_{}'.format(n_fifos)
+                        n_fifos += 1
+                        out_fifos.append(fifo_name)
+                        f.write('\nmkfifo {}\n'.format(fifo_name))
+
+                    functions[component] = (fname, out_fifos, out_fifos[:])
+
+                for component, (fname, fifos1, fifos2) in functions.items():
+                    f.write(fname[:-2])
+
+                    for in_pipe in component.input_pipes:
+                        fifo = functions[in_pipe.start][1].pop(0)
+                        f.write(' ' + fifo)
+
+                    for fifo in fifos2:
+                        f.write(' ' + fifo)
+                    f.write(' &\n')
+
+                f.write('wait\n')
+
+                for i in range(n_fifos):
+                    f.write('rm /tmp/plumber_{}\n'.format(i))
+
         dialog.destroy()
 
     def do_open(self, button):
@@ -80,8 +119,8 @@ class ComponentDrawer(Gtk.DrawingArea):
     BASE_CORNER_RADIUS = 6
     BASE_LINE_WIDTH = 2
     BASE_STROKE_COLOR = (0, 0, 0)
-    BASE_FILL_COLOR = (135 / 255, 206 / 255, 250 / 255, 1)
-    BASE_FILL_COLOR_SELECTED = (255 / 255, 215 / 255, 0 / 255, 1)
+    BASE_FILL_COLOR = (135 / 255, 206 / 255, 250 / 255)
+    BASE_FILL_COLOR_SELECTED = (255 / 255, 215 / 255, 0 / 255)
 
     PORT_RADIUS = 4
     PORT_LINE_WIDTH = 1
@@ -90,7 +129,7 @@ class ComponentDrawer(Gtk.DrawingArea):
     PORT_OUT_COLOR = (255 / 255, 140 / 255, 0 / 255)
 
     def __init__(self, builder, component, is_icon):
-        super().__init__()
+        super(ComponentDrawer, self).__init__()
         self.set_has_window(False)
         self.builder = builder
         self.component = component
@@ -140,9 +179,9 @@ class ComponentDrawer(Gtk.DrawingArea):
         ctx.set_source_rgb(*self.BASE_STROKE_COLOR)
         ctx.stroke_preserve()
         if self.is_selected:
-            ctx.set_source_rgba(*self.BASE_FILL_COLOR_SELECTED)
+            ctx.set_source_rgb(*self.BASE_FILL_COLOR_SELECTED)
         else:
-            ctx.set_source_rgba(*self.BASE_FILL_COLOR)
+            ctx.set_source_rgb(*self.BASE_FILL_COLOR)
         ctx.fill()
 
     def draw_inputs(self, ctx, width, height):
