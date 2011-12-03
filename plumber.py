@@ -14,8 +14,6 @@ ID_TOOLBAR_BUTTON = 'toolbar_'
 ID_COMPONENT_PALETTE = 'component_palette'
 ID_CANVAS = 'canvas'
 
-class FullPipeError(Exception): pass
-
 class PlumberPart(object):
     def __init__(self, builder, components):
         self.builder = builder
@@ -71,12 +69,12 @@ class ComponentDrawer(Gtk.DrawingArea):
     FONT_FACE = 'Sans'
     FONT_SIZE = 15
 
-    BASE_MARGIN = 5
-    BASE_CORNER_RADIUS = 4
+    BASE_MARGIN = 10
+    BASE_CORNER_RADIUS = 6
     BASE_LINE_WIDTH = 2
     BASE_STROKE_COLOR = (0, 0, 0)
-    BASE_FILL_COLOR = (135 / 255, 206 / 255, 250 / 255, 0.1)
-    BASE_FILL_COLOR_SELECTED = (255 / 255, 215 / 255, 0 / 255, 0.1)
+    BASE_FILL_COLOR = (135 / 255, 206 / 255, 250 / 255, 1)
+    BASE_FILL_COLOR_SELECTED = (255 / 255, 215 / 255, 0 / 255, 1)
 
     PORT_RADIUS = 4
     PORT_LINE_WIDTH = 1
@@ -86,6 +84,7 @@ class ComponentDrawer(Gtk.DrawingArea):
 
     def __init__(self, builder, component, is_icon):
         super().__init__()
+        self.set_has_window(False)
         self.builder = builder
         self.component = component
         self.is_icon = is_icon
@@ -94,56 +93,10 @@ class ComponentDrawer(Gtk.DrawingArea):
 
         self.connect('draw', self.do_draw)
 
-        #self.override_background_color(0, Gdk.RGBA(0, 0, 0, 0.1))
-
         if self.is_icon:
             self.set_size_request(self.ICON_WIDTH, self.ICON_HEIGHT)
         else:
-            self.set_can_focus(True)
             self.set_size_request(self.CANVAS_WIDTH, self.CANVAS_HEIGHT)
-            self.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
-                            | Gdk.EventMask.BUTTON_MOTION_MASK
-                            | Gdk.EventMask.BUTTON_PRESS_MASK
-                            | Gdk.EventMask.BUTTON_RELEASE_MASK)
-
-            self.connect('button-press-event', self.do_press)
-            self.connect('button-release-event', self.do_release)
-
-    def do_press(self, component, event):
-        self.get_parent().set_focus_child(self)
-        if event.button == 1:
-            self.is_drag = True
-        if event.button == 3:
-            self.is_selected = True
-            self.get_window().invalidate_rect(None, True)
-
-        if event.type == Gdk.EventType._2BUTTON_PRESS:
-            if self.component.properties_dialog is None:
-                return
-
-            #(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
-            dialog = Gtk.Dialog(self.component.name + ' Properties',
-                                self.builder.get_object(ID_MAIN_WINDOW),
-                                Gtk.DialogFlags.MODAL
-                                    | Gtk.DialogFlags.DESTROY_WITH_PARENT,
-                                (Gtk.STOCK_OK, Gtk.ResponseType.OK))
-
-            dbuilder = Gtk.Builder()
-            dbuilder.add_from_string(self.component.properties_dialog)
-
-            content_area = dialog.get_content_area()
-            content_area.pack_start(dbuilder.get_object('properties_box'),
-                                    False, False, 0)
-
-            dbuilder.connect_signals(self.component)
-            content_area.show_all()
-
-            response = dialog.run()
-            print('Response:', response)
-            dialog.destroy()
-
-    def do_release(self, component, event):
-        self.is_drag = False
 
     def do_draw(self, *args):
         if len(args) == 1:
@@ -153,12 +106,6 @@ class ComponentDrawer(Gtk.DrawingArea):
 
         width = self.get_allocated_width()
         height = self.get_allocated_height()
-
-        ctx.save()
-        ctx.set_source_rgba(0, 0, 0, 0)
-        ctx.rectangle(0, 0, width, height)
-        ctx.fill()
-        ctx.restore()
 
         self.draw_component(ctx, width, height)
 
@@ -225,7 +172,7 @@ class ComponentDrawer(Gtk.DrawingArea):
     def draw_name(self, ctx, width, height):
         ctx.select_font_face(self.FONT_FACE)
         ctx.set_font_size(self.FONT_SIZE)
-        ctx.move_to(self.BASE_MARGIN * 4, height - self.BASE_MARGIN * 4)
+        ctx.move_to(self.BASE_MARGIN * 2, height - self.BASE_MARGIN * 2)
         ctx.set_source_rgb(0, 0, 0)
         ctx.show_text(self.component.name)
         ctx.stroke()
@@ -266,15 +213,26 @@ class CanvasPipe(object):
     PIPE_WIDTH = 6
     PIPE_COLOR = (0, 0, 0)
 
-    def __init__(self, start, end):
-        self.start = start
-        self.end = end
-        start.component.attach_output(self)
-        end.component.attach_input(self)
+    def __init__(self, start_box, end_box):
+        self.start_box = start_box
+        self.end_box = end_box
+
+        self.start = start_box.get_children()[0].component
+        self.end = end_box.get_children()[0].component
+
+        try:
+            self.start.attach_output(self)
+            self.end.attach_input(self)
+        except components.FullPipeError:
+            self.detach()
+            raise
 
     def detach(self):
-        self.start.component.detach_output(self)
-        self.end.component.detach_input(self)
+        try:
+            self.start.detach_output(self)
+            self.end.detach_input(self)
+        except ValueError:
+            pass
 
     def do_draw(self, canvas, ctx):
         ctx.set_line_width(self.PIPE_WIDTH)
@@ -285,23 +243,24 @@ class CanvasPipe(object):
         value = GObject.Value()
         value.init(GObject.TYPE_INT)
 
-        height = (ComponentDrawer.CANVAS_HEIGHT - ComponentDrawer.BASE_MARGIN * 2)
+        available_space = (ComponentDrawer.CANVAS_HEIGHT
+                           - ComponentDrawer.BASE_MARGIN * 2)
 
-        start_n = self.start.component.output_pipes.index(self) + 1
-        end_n = self.end.component.input_pipes.index(self) + 1
+        start_n = self.start.output_pipes.index(self) + 1
+        end_n = self.end.input_pipes.index(self) + 1
 
-        start_offset = height / (self.start.component.outputs + 1) * start_n
-        end_offset = height / (self.end.component.inputs + 1) * end_n
+        start_offset = available_space / (self.start.outputs + 1) * start_n
+        end_offset = available_space / (self.end.inputs + 1) * end_n
 
-        canvas.child_get_property(self.start, 'x', value)
-        start_x = value.get_int() + ComponentDrawer.CANVAS_WIDTH
-        canvas.child_get_property(self.start, 'y', value)
-        start_y = value.get_int() + start_offset
+        canvas.child_get_property(self.start_box, 'x', value)
+        start_x = value.get_int() + ComponentDrawer.CANVAS_WIDTH - ComponentDrawer.BASE_MARGIN
+        canvas.child_get_property(self.start_box, 'y', value)
+        start_y = value.get_int() + start_offset + ComponentDrawer.BASE_MARGIN
 
-        canvas.child_get_property(self.end, 'x', value)
+        canvas.child_get_property(self.end_box, 'x', value)
         end_x = value.get_int() + ComponentDrawer.BASE_MARGIN
-        canvas.child_get_property(self.end, 'y', value)
-        end_y = value.get_int() + end_offset
+        canvas.child_get_property(self.end_box, 'y', value)
+        end_y = value.get_int() + end_offset + ComponentDrawer.BASE_MARGIN
 
         ctx.move_to(start_x, start_y)
         ctx.line_to(start_x + ((end_x - start_x) / 2), start_y)
@@ -316,7 +275,9 @@ class Canvas(PlumberPart):
 
     def init_ui(self):
         self.pipes = []
-        self.last_selected = None
+        self.drag_component = None
+        self.add_pipe_component = None
+        self.remove_pipe_component = None
 
         canvas = self.builder.get_object(ID_CANVAS)
         canvas.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
@@ -335,62 +296,99 @@ class Canvas(PlumberPart):
 
         canvas.connect('draw', self.do_draw)
         canvas.connect('motion-notify-event', self.do_motion)
-        canvas.connect('button-release-event', self.do_release)
+        #canvas.connect('button-release-event', self.do_release)
         #canvas.connect('drag-motion', self.do_drag_motion)
         #canvas.connect('drag-drop', self.do_drag_drop)
         canvas.connect('drag-data-received', self.do_drag_received)
 
-    def do_release(self, canvas, event):
-        component = canvas.get_focus_child()
-        canvas.set_focus_child(None)
+    def do_child_press(self, component_box, event):
+        component_drawer = component_box.get_children()[0]
+        component = component_drawer.component
 
-        if (component and component.is_selected
-                and self.last_selected != component):
-            if self.last_selected is None:
-                self.last_selected = component
+        if event.button == 1 and event.type == Gdk.EventType.BUTTON_PRESS:
+            self.drag_component = component_box
+        else:
+            self.drag_component = None
+
+        if event.button == 1 and event.type == Gdk.EventType._2BUTTON_PRESS:
+            self.show_properties(component)
+
+        if event.button == 3 and event.type == Gdk.EventType.BUTTON_PRESS:
+            if self.add_pipe_component is component_box:
+                self.add_pipe_component = None
+                component_drawer.is_selected = False
+
+            elif self.add_pipe_component:
+                self.add_pipe(self.add_pipe_component, component_box)
+                self.add_pipe_component.get_children()[0].is_selected = False
+                self.add_pipe_component = None
+                component_drawer.is_selected = False
+
             else:
-                pipe = self.find_pipe(self.last_selected, component)
-                if pipe is not None:
-                    pipe.detach()
-                    self.pipes.remove(pipe)
-                else:
-                    try:
-                        self.pipes.append(CanvasPipe(self.last_selected, component))
-                    except FullPipeError:
-                        pass
-                self.deselect_children(canvas)
+                self.add_pipe_component = component_box
+                component_drawer.is_selected = True
 
-        canvas.get_window().invalidate_rect(None, True)
+        elif self.add_pipe_component:
+            self.add_pipe_component.get_children()[0].is_selected = False
+            self.add_pipe_component = None
 
-    def deselect_children(self, canvas):
-        for child in canvas.get_children():
-            child.is_selected = False
-            child.get_window().invalidate_rect(None, True)
-        self.last_selected = None
+        component_box.get_window().invalidate_rect(None, True)
+
+    def do_child_release(self, component_box, event):
+        component = component_box.get_children()[0].component
+        self.drag_component = None
+
+    def do_motion(self, canvas, event):
+        if self.drag_component:
+            value = GObject.Value()
+            value.init(GObject.TYPE_INT)
+
+            canvas.child_get_property(self.drag_component, 'x', value)
+            value.set_int(value.get_int() + event.x
+                          - ComponentDrawer.CANVAS_WIDTH / 2)
+            canvas.child_set_property(self.drag_component, 'x', value)
+
+            canvas.child_get_property(self.drag_component, 'y', value)
+            value.set_int(value.get_int() + event.y
+                          - ComponentDrawer.CANVAS_HEIGHT / 2)
+            canvas.child_set_property(self.drag_component, 'y', value)
+
+    def show_properties(self, component):
+        if component.properties_dialog is None:
+            return
+
+        dialog = Gtk.Dialog(component.name + ' Properties',
+                            self.builder.get_object(ID_MAIN_WINDOW),
+                            Gtk.DialogFlags.MODAL
+                                | Gtk.DialogFlags.DESTROY_WITH_PARENT,
+                            (Gtk.STOCK_OK, Gtk.ResponseType.OK))
+
+        dbuilder = Gtk.Builder()
+        dbuilder.add_from_string(component.properties_dialog)
+
+        content_area = dialog.get_content_area()
+        content_area.pack_start(dbuilder.get_object('properties_box'),
+                                False, False, 0)
+        dbuilder.connect_signals(component)
+        component.init_properties(dbuilder)
+
+        content_area.show_all()
+
+        response = dialog.run()
+        print('Response:', response)
+        dialog.destroy()
+
+    def add_pipe(self, start_component_box, end_component_box):
+        try:
+            self.pipes.append(CanvasPipe(start_component_box, end_component_box))
+        except components.FullPipeError:
+            pass
 
     def find_pipe(self, start, end):
         for pipe in self.pipes:
             if pipe.start is start and pipe.end is end:
                 return pipe
         return None
-
-    def do_motion(self, canvas, event):
-        component = canvas.get_focus_child()
-        if not component or not component.is_drag:
-            return
-
-        value = GObject.Value()
-        value.init(GObject.TYPE_INT)
-
-        canvas.child_get_property(component, 'x', value)
-        value.set_int(value.get_int() + event.x
-                      - ComponentDrawer.CANVAS_WIDTH / 2)
-        canvas.child_set_property(component, 'x', value)
-
-        canvas.child_get_property(component, 'y', value)
-        value.set_int(value.get_int() + event.y
-                      - ComponentDrawer.CANVAS_HEIGHT / 2)
-        canvas.child_set_property(component, 'y', value)
 
     #def do_drag_motion(self, canvas, context, x, y, time):
     #    print('drag motion ({}, {}) at {}'.format(x, y, time))
@@ -405,9 +403,20 @@ class Canvas(PlumberPart):
         component = self.components[data.get_text()]
         Gtk.drag_finish(context, True, False, time)
 
+        event_box = Gtk.EventBox()
+        event_box.set_visible_window(False)
+        event_box.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
+                        | Gdk.EventMask.BUTTON_MOTION_MASK
+                        | Gdk.EventMask.BUTTON_PRESS_MASK
+                        | Gdk.EventMask.BUTTON_RELEASE_MASK)
+        event_box.connect('button-press-event', self.do_child_press)
+        event_box.connect('button-release-event', self.do_child_release)
+
         drawer = ComponentDrawer(self.builder, component(), False)
+        event_box.add(drawer)
         drawer.set_visible(True)
-        canvas.put(drawer,
+        event_box.set_visible(True)
+        canvas.put(event_box,
                    x - ComponentDrawer.CANVAS_WIDTH / 2,
                    y - ComponentDrawer.CANVAS_HEIGHT/ 2)
 

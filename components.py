@@ -1,4 +1,10 @@
-class Component():
+import re
+
+from gi.repository import Gtk
+
+class FullPipeError(Exception): pass
+
+class Component(object):
     def __init__(self):
         self.input_pipes = []
         self.output_pipes = []
@@ -21,6 +27,9 @@ class Component():
     def detach_output(self, pipe):
         self.output_pipes.remove(pipe)
 
+    def init_properties(self, builder):
+        pass
+
 class FileInputComponent(Component):
     name = 'File Input'
     category = 'I/O'
@@ -37,7 +46,7 @@ class FileInputComponent(Component):
                             <property name="label">File Name:</property>
                         </object></child>
                         <child>
-                            <object class="GtkFileChooserButton" id="button1">
+                            <object class="GtkFileChooserButton" id="filechooser1">
                                 <property name="title">Input File Name</property>
                                 <signal name="file-set" handler="set_input_file"/>
                             </object>
@@ -51,11 +60,16 @@ class FileInputComponent(Component):
         </interface>'''
 
     def __init__(self):
+        super().__init__()
         self.input_file = None
 
-    def set_input_file(self, fileChooser):
-        print('FOOOO:', args)
+    def init_properties(self, builder):
+        if self.input_file:
+            file_chooser = builder.get_object('filechooser1')
+            file_chooser.set_filename(self.input_file)
 
+    def set_input_file(self, file_chooser):
+        self.input_file = file_chooser.get_filename()
 
 class FileOutputComponent(Component):
     name = 'File Output'
@@ -73,9 +87,9 @@ class FileOutputComponent(Component):
                             <property name="label">File Name:</property>
                         </object></child>
                         <child>
-                            <object class="GtkFileChooserButton" id="button1">
+                            <object class="GtkFileChooserButton" id="filechooser1">
                                 <property name="title">Output File Name</property>
-                                <property name="action">save</property>
+                                <signal name="file-set" handler="set_output_file"/>
                             </object>
                             <packing>
                                 <property name="expand">True</property>
@@ -85,6 +99,18 @@ class FileOutputComponent(Component):
                 </child>
             </object>
         </interface>'''
+
+    def __init__(self):
+        super().__init__()
+        self.output_file = None
+
+    def init_properties(self, builder):
+        file_chooser = builder.get_object('filechooser1')
+        if self.output_file:
+            file_chooser.set_filename(self.output_file)
+
+    def set_output_file(self, file_chooser):
+        self.output_file = file_chooser.get_filename()
 
 class FilterComponent(Component):
     name = 'Filter'
@@ -102,7 +128,9 @@ class FilterComponent(Component):
                             <property name="label">Regular Expression</property>
                         </object></child>
                         <child>
-                            <object class="GtkEntry" id="entry" />
+                            <object class="GtkEntry" id="entry1">
+                                <signal name="changed" handler="set_regex"/>
+                            </object>
                             <packing>
                                 <property name="expand">True</property>
                             </packing>
@@ -111,6 +139,21 @@ class FilterComponent(Component):
                 </child>
             </object>
         </interface>'''
+
+    def __init__(self):
+        super().__init__()
+        self.regex = None
+
+    def init_properties(self, builder):
+        entry = builder.get_object('entry1')
+        if self.regex:
+            entry.set_text(self.regex.pattern)
+
+    def set_regex(self, entry):
+        try:
+            self.regex = re.compile(entry.get_text())
+        except re.error:
+            pass
 
 class SplitComponent(Component):
     name = 'Split'
@@ -125,10 +168,12 @@ class SplitComponent(Component):
                 <child>
                     <object class="GtkBox" id="box1">
                         <child><object class="GtkLabel" id="label1">
-                            <property name="label">Regular Expression</property>
+                            <property name="label">Delimiter</property>
                         </object></child>
                         <child>
-                            <object class="GtkEntry" id="entry" />
+                            <object class="GtkEntry" id="entry1">
+                                <signal name="changed" handler="set_delim"/>
+                            </object>
                             <packing>
                                 <property name="expand">True</property>
                             </packing>
@@ -137,6 +182,18 @@ class SplitComponent(Component):
                 </child>
             </object>
         </interface>'''
+
+    def __init__(self):
+        super().__init__()
+        self.delim = None
+
+    def init_properties(self, builder):
+        entry = builder.get_object('entry1')
+        if self.delim:
+            entry.set_text(self.delim)
+
+    def set_regex(self, entry):
+        self.delim = entry.get_text()
 
 class AddComponent(Component):
     name = 'Add'
