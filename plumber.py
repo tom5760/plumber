@@ -250,7 +250,7 @@ class ComponentPalette(PlumberPart):
     def do_data_get(self, button, context, data, info, time, name):
         data.set_text(name, len(name))
 
-class CanvasPipe(object):
+class PipeDrawer(object):
     PIPE_WIDTH = 6
     PIPE_COLOR = (0, 0, 0)
 
@@ -432,7 +432,7 @@ class Canvas(PlumberPart):
 
     def add_pipe(self, start_component_box, end_component_box):
         try:
-            self.pipes.append(CanvasPipe(start_component_box, end_component_box))
+            self.pipes.append(PipeDrawer(start_component_box, end_component_box))
         except components.FullPipeError:
             pass
 
