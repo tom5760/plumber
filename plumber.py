@@ -53,6 +53,7 @@ class Toolbar(PlumberPart):
                     n_funcs += 1
 
                     f.write(component.get_function(fname))
+                    f.write('\n')
 
                     out_fifos = []
                     for i in range(len(component.output_pipes)):
