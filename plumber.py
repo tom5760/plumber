@@ -327,10 +327,27 @@ class Canvas(PlumberPart):
             else:
                 self.add_pipe_component = component_box
                 component_drawer.is_selected = True
-
         elif self.add_pipe_component:
             self.add_pipe_component.get_children()[0].is_selected = False
             self.add_pipe_component = None
+
+        if event.button == 2 and event.type == Gdk.EventType.BUTTON_PRESS:
+            if self.remove_pipe_component is component_box:
+                self.remove_pipe_component = None
+                component_drawer.is_selected = False
+
+            elif self.remove_pipe_component:
+                self.remove_pipe(self.remove_pipe_component, component_box)
+                self.remove_pipe_component.get_children()[0].is_selected = False
+                self.remove_pipe_component = None
+                component_drawer.is_selected = False
+
+            else:
+                self.remove_pipe_component = component_box
+                component_drawer.is_selected = True
+        elif self.remove_pipe_component:
+            self.remove_pipe_component.get_children()[0].is_selected = False
+            self.remove_pipe_component = None
 
         component_box.get_window().invalidate_rect(None, True)
 
@@ -383,6 +400,13 @@ class Canvas(PlumberPart):
             self.pipes.append(CanvasPipe(start_component_box, end_component_box))
         except components.FullPipeError:
             pass
+
+    def remove_pipe(self, start_box, end_box):
+        for pipe in self.pipes:
+            if pipe.start_box == start_box and pipe.end_box == end_box:
+                pipe.detach()
+                self.pipes.remove(pipe)
+                return
 
     def find_pipe(self, start, end):
         for pipe in self.pipes:
