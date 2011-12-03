@@ -15,9 +15,8 @@ ID_COMPONENT_PALETTE = 'component_palette'
 ID_CANVAS = 'canvas'
 
 class PlumberPart(object):
-    def __init__(self, builder, components):
-        self.builder = builder
-        self.components = components
+    def __init__(self, app):
+        self.app = app
 
     # This class needs to be subclassed
     def init_ui(self):
@@ -29,11 +28,19 @@ class Toolbar(PlumberPart):
 
     def init_ui(self):
         for name in Toolbar.BUTTONS:
-            button = self.builder.get_object(ID_TOOLBAR_BUTTON + name)
+            button = self.app.builder.get_object(ID_TOOLBAR_BUTTON + name)
             button.connect('clicked', getattr(self, 'do_' + name))
 
     def do_save(self, button):
-        print('SAVE')
+        dialog = Gtk.FileChooserDialog(
+                'Save...',
+                self.builder.get_object(ID_MAIN_WINDOW),
+                Gtk.FileChooserAction.SAVE,
+                (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+                    Gtk.STOCK_OK, Gtk.ResponseType.OK))
+        response = dialog.run()
+        print('Save Response:', response)
+        dialog.destroy()
 
     def do_open(self, button):
         print('OPEN')
@@ -180,17 +187,16 @@ class ComponentDrawer(Gtk.DrawingArea):
 class ComponentPalette(PlumberPart):
     def init_ui(self):
         self.categories = {}
-        pane = self.builder.get_object(ID_COMPONENT_PALETTE)
+        pane = self.app.builder.get_object(ID_COMPONENT_PALETTE)
 
-        for component in self.components.values():
+        for component in self.app.components.values():
             button = Gtk.ToolButton.new(None, component.name)
-            button.set_icon_widget(ComponentDrawer(self.builder, component,
+            button.set_icon_widget(ComponentDrawer(self.app.builder, component,
                                                    True))
             button.set_use_drag_window(True)
             button.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, None, Gdk.DragAction.COPY)
             button.drag_source_add_text_targets()
 
-            #button.connect('drag-begin', self.do_drag_begin, component.name)
             button.connect('drag-data-get', self.do_data_get, component.name)
 
             try:
@@ -201,10 +207,6 @@ class ComponentPalette(PlumberPart):
                 pane.add(group)
 
             group.add(button)
-
-    #def do_drag_begin(self, button, drag_context, name):
-    #    print('drag', name, button)
-    #    #button.drag_source_set_icon_pixbuf(buf)
 
     def do_data_get(self, button, context, data, info, time, name):
         data.set_text(name, len(name))
@@ -279,7 +281,7 @@ class Canvas(PlumberPart):
         self.add_pipe_component = None
         self.remove_pipe_component = None
 
-        canvas = self.builder.get_object(ID_CANVAS)
+        canvas = self.app.builder.get_object(ID_CANVAS)
         canvas.add_events(Gdk.EventMask.POINTER_MOTION_HINT_MASK
                           | Gdk.EventMask.BUTTON_MOTION_MASK
                           | Gdk.EventMask.BUTTON_PRESS_MASK
@@ -287,18 +289,12 @@ class Canvas(PlumberPart):
 
         canvas.set_reallocate_redraws(True)
 
-        #canvas.put(ComponentDrawer(SplitComponent(), False), 300, 300)
-
-        #canvas.drag_dest_set(Gtk.DestDefaults.MOTION | Gtk.DestDefaults.DROP,
         canvas.drag_dest_set(Gtk.DestDefaults.MOTION | Gtk.DestDefaults.DROP,
                              None, Gdk.DragAction.COPY)
         canvas.drag_dest_add_text_targets()
 
         canvas.connect('draw', self.do_draw)
         canvas.connect('motion-notify-event', self.do_motion)
-        #canvas.connect('button-release-event', self.do_release)
-        #canvas.connect('drag-motion', self.do_drag_motion)
-        #canvas.connect('drag-drop', self.do_drag_drop)
         canvas.connect('drag-data-received', self.do_drag_received)
 
     def do_child_press(self, component_box, event):
@@ -375,7 +371,7 @@ class Canvas(PlumberPart):
             return
 
         dialog = Gtk.Dialog(component.name + ' Properties',
-                            self.builder.get_object(ID_MAIN_WINDOW),
+                            self.app.builder.get_object(ID_MAIN_WINDOW),
                             Gtk.DialogFlags.MODAL
                                 | Gtk.DialogFlags.DESTROY_WITH_PARENT,
                             (Gtk.STOCK_OK, Gtk.ResponseType.OK))
@@ -414,17 +410,8 @@ class Canvas(PlumberPart):
                 return pipe
         return None
 
-    #def do_drag_motion(self, canvas, context, x, y, time):
-    #    print('drag motion ({}, {}) at {}'.format(x, y, time))
-    #    return True
-
-    #def do_drag_drop(self, canvas, context, x, y, time):
-    #    print('drag drop ({}, {}) at {}'.format(x, y, time))
-    #    canvas.drag_get_data(context, Gdk.Atom.intern('foo', False), time)
-    #    return True
-
     def do_drag_received(self, canvas, context, x, y, data, info, time):
-        component = self.components[data.get_text()]
+        component = self.app.components[data.get_text()]
         Gtk.drag_finish(context, True, False, time)
 
         event_box = Gtk.EventBox()
@@ -436,7 +423,7 @@ class Canvas(PlumberPart):
         event_box.connect('button-press-event', self.do_child_press)
         event_box.connect('button-release-event', self.do_child_release)
 
-        drawer = ComponentDrawer(self.builder, component(), False)
+        drawer = ComponentDrawer(self.app.builder, component(), False)
         event_box.add(drawer)
         drawer.set_visible(True)
         event_box.set_visible(True)
@@ -500,9 +487,14 @@ class Plumber(object):
         main_window = self.builder.get_object(ID_MAIN_WINDOW)
         main_window.connect('destroy', Gtk.main_quit)
 
-        Toolbar(self.builder, self.components).init_ui()
-        ComponentPalette(self.builder, self.components).init_ui()
-        Canvas(self.builder, self.components).init_ui()
+        self.toolbar = Toolbar(self)
+        self.toolbar.init_ui()
+
+        self.component_palette = ComponentPalette(self)
+        self.component_palette.init_ui()
+
+        self.canvas = Canvas(self)
+        self.canvas.init_ui()
 
 def main(argv):
     p = Plumber()
