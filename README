@@ -1,0 +1,26 @@
+===============================
+Plumber: Visual Shell Scription
+===============================
+
+Author: Tom Wambold <taw38@drexel.edu>
+Demo Video: http://vimeo.com/33067688
+
+Files
+-----
+    * plumber.py - Main program file.
+    * components.py - Implements individual components.
+    * gui.xml - GtkBuilder XML interface description.
+    * paper.pdf - Final paper.
+    * slides.pdf - Project presentation.
+
+Requirements
+------------
+
+You need Python 2.6 or greater (Python 3 works).  On Ubuntu, you can install
+the following packages:
+
+    * python-gobject
+    * python-cairo
+    * python-gobject-cairo
+
+Then just run "python plumber.py"
