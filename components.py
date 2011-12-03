@@ -221,7 +221,7 @@ class SplitComponent(Component):
 function {fname} {{
     while read line; do
         echo $line | awk -F \'{delim}\' \'{{print $1}}\'
-        echo $line | awk -F \'{delim}\' \'{{print $1}}\' >&2
+        echo $line | awk -F \'{delim}\' \'{{print $2}}\' >&2
     done < $1 > $2 2> $3
 }}'''.format(fname=fname, delim=self.delim)
 
