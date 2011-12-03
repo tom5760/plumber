@@ -121,12 +121,12 @@ class ComponentDrawer(Gtk.DrawingArea):
             if self.component.properties_dialog is None:
                 return
 
+            #(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
             dialog = Gtk.Dialog(self.component.name + ' Properties',
                                 self.builder.get_object(ID_MAIN_WINDOW),
                                 Gtk.DialogFlags.MODAL
                                     | Gtk.DialogFlags.DESTROY_WITH_PARENT,
-                                (Gtk.STOCK_OK, Gtk.ResponseType.OK,
-                                    Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+                                (Gtk.STOCK_OK, Gtk.ResponseType.OK))
 
             dbuilder = Gtk.Builder()
             dbuilder.add_from_string(self.component.properties_dialog)
@@ -134,6 +134,8 @@ class ComponentDrawer(Gtk.DrawingArea):
             content_area = dialog.get_content_area()
             content_area.pack_start(dbuilder.get_object('properties_box'),
                                     False, False, 0)
+
+            dbuilder.connect_signals(self.component)
             content_area.show_all()
 
             response = dialog.run()

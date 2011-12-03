@@ -39,6 +39,7 @@ class FileInputComponent(Component):
                         <child>
                             <object class="GtkFileChooserButton" id="button1">
                                 <property name="title">Input File Name</property>
+                                <signal name="file-set" handler="set_input_file"/>
                             </object>
                             <packing>
                                 <property name="expand">True</property>
@@ -48,6 +49,13 @@ class FileInputComponent(Component):
                 </child>
             </object>
         </interface>'''
+
+    def __init__(self):
+        self.input_file = None
+
+    def set_input_file(self, fileChooser):
+        print('FOOOO:', args)
+
 
 class FileOutputComponent(Component):
     name = 'File Output'
@@ -67,6 +75,7 @@ class FileOutputComponent(Component):
                         <child>
                             <object class="GtkFileChooserButton" id="button1">
                                 <property name="title">Output File Name</property>
+                                <property name="action">save</property>
                             </object>
                             <packing>
                                 <property name="expand">True</property>
