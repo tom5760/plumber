@@ -1,17 +1,21 @@
 ===============================
-Plumber: Visual Shell Scription
+Plumber: Visual Shell Scripting
 ===============================
 
-Author: Tom Wambold <taw38@drexel.edu>
+Author: Tom Wambold <tom5760@gmail.com>
 Demo Video: http://vimeo.com/33067688
+
+I wrote this for my final project in a GUI class.  The code is pretty decent,
+but there are a bunch of things that don't work quite right.  I think the most
+valuable part of this is that it is a good non-trivial example of using
+pygobject and pycairo.  The canvas and component widgets are all drawn
+programatically using pycairo.
 
 Files
 -----
     * plumber.py - Main program file.
     * components.py - Implements individual components.
     * gui.xml - GtkBuilder XML interface description.
-    * paper.pdf - Final paper.
-    * slides.pdf - Project presentation.
 
 Requirements
 ------------
@@ -22,5 +26,10 @@ the following packages:
     * python-gobject
     * python-cairo
     * python-gobject-cairo
+
+On Arch Linux, install the following packages:
+
+    * python-gobject
+    * python-cairo
 
 Then just run "python plumber.py"
